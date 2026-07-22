@@ -4034,8 +4034,14 @@ function Scanner:PollPendingResults()
 
     if not target.resultsReceived then
         local genericResponseAge = target.genericResponseTime and (GetTime() - target.genericResponseTime) or 0
-        if target.genericResponseReceived and genericResponseAge >= GENERIC_RESULT_GRACE_SECONDS then
-            if self:TryProcessAvailableResultsAtTimeout(target) or
+        if target.genericResponseReceived then
+            -- Populated AH rows can be short-lived when other AH consumers are
+            -- active, so capture them immediately. Only empty-result handling
+            -- waits for the grace period and confirmation retry.
+            if self:TryProcessAvailableResultsAtTimeout(target) then
+                return
+            end
+            if genericResponseAge >= GENERIC_RESULT_GRACE_SECONDS and
                 self:TryResolveEmptyCompletedResultsAtTimeout(target) then
                 return
             end
