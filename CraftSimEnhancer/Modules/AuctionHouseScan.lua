@@ -3526,6 +3526,12 @@ function Scanner:SchedulePendingTimeout(seconds)
                 Scanner:SchedulePendingPoll(0.35)
                 return
             end
+            if not Scanner:IsAuctionThrottleReady() then
+                Scanner:SetStatus("Waiting for the Auction House throttle.")
+                Scanner:SchedulePendingTimeout()
+                Scanner:SchedulePendingPoll(0.35)
+                return
+            end
             target.error = "Timed out waiting for AH results."
             Scanner:FinishPendingTarget({})
         end
@@ -3576,6 +3582,7 @@ function Scanner:TrySendNextQuery()
     if cachedRows then
         target.cachedItemRows = cachedRows
         target.currentRawItemRows = cachedRows
+        target.usedCachedRows = true
         target.resultsReceived = true
         self:SetStatus("Using current AH results for " .. tostring(target.label) .. " (" ..
             tostring(target.itemID) .. ")")
@@ -4156,7 +4163,11 @@ function Scanner:FinishPendingTarget(rows, resultType)
     self:UpdateProgressText()
     self:UpdateButtons()
 
-    C_Timer.After(MIN_QUERY_INTERVAL, function()
+    -- Cached rank variants do not send another AH request. Process the next
+    -- target immediately; TrySendNextQuery still enforces nextQueryTime before
+    -- the next real request.
+    local nextTargetDelay = target.usedCachedRows and 0 or MIN_QUERY_INTERVAL
+    C_Timer.After(nextTargetDelay, function()
         Scanner:TrySendNextQuery()
     end)
 end
@@ -4190,6 +4201,50 @@ function Scanner:CancelScan(reason)
     self:UpdateButtons()
 end
 
+---@return table<string, number> pricesByOverrideKey
+---@return number cappedCount
+function Scanner:GetNormalizedResultOverridePrices()
+    local pricesByRecipe = {}
+
+    for _, result in ipairs(self.priceResults or {}) do
+        local price = math.floor((tonumber(result.price) or 0) + 0.5)
+        if price > 0 then
+            for _, overrideTarget in ipairs(result.overrideTargets or {}) do
+                local recipeID = tonumber(overrideTarget.recipeID)
+                local qualityID = tonumber(overrideTarget.qualityID)
+                if overrideTarget.kind == "result" and recipeID and qualityID then
+                    pricesByRecipe[recipeID] = pricesByRecipe[recipeID] or {}
+                    local current = pricesByRecipe[recipeID][qualityID]
+                    pricesByRecipe[recipeID][qualityID] = current and math.min(current, price) or price
+                end
+            end
+        end
+    end
+
+    local normalized = {}
+    local cappedCount = 0
+    for recipeID, pricesByQuality in pairs(pricesByRecipe) do
+        local qualityIDs = {}
+        for qualityID in pairs(pricesByQuality) do
+            table.insert(qualityIDs, qualityID)
+        end
+        table.sort(qualityIDs, function(a, b) return a > b end)
+
+        local cheapestEqualOrBetter
+        for _, qualityID in ipairs(qualityIDs) do
+            local listedPrice = pricesByQuality[qualityID]
+            if not cheapestEqualOrBetter or listedPrice < cheapestEqualOrBetter then
+                cheapestEqualOrBetter = listedPrice
+            elseif listedPrice > cheapestEqualOrBetter then
+                cappedCount = cappedCount + 1
+            end
+            normalized[tostring(recipeID) .. ":" .. tostring(qualityID)] = cheapestEqualOrBetter
+        end
+    end
+
+    return normalized, cappedCount
+end
+
 function Scanner:PushOverrides()
     if not self.scanComplete or not self:HasOverridesToPush() then
         self:SetStatus("Run a scan before pushing overrides.")
@@ -4201,6 +4256,7 @@ function Scanner:PushOverrides()
     local globalCount = 0
     local resultCount = 0
     local suppressedResultCount = 0
+    local normalizedResultPrices, cappedResultCount = self:GetNormalizedResultOverridePrices()
 
     for _, result in ipairs(self.priceResults) do
         local price = math.floor((tonumber(result.price) or 0) + 0.5)
@@ -4209,11 +4265,12 @@ function Scanner:PushOverrides()
                 if overrideTarget.kind == "result" and overrideTarget.recipeID and overrideTarget.qualityID then
                     local key = tostring(overrideTarget.recipeID) .. ":" .. tostring(overrideTarget.qualityID)
                     if not savedResults[key] then
+                        local resultPrice = normalizedResultPrices[key] or price
                         local saved, saveError = ns.Compat.CraftSim:SaveResultOverride({
                             recipeID = overrideTarget.recipeID,
                             itemID = overrideTarget.itemID or result.itemID,
                             qualityID = overrideTarget.qualityID,
-                            price = price,
+                            price = resultPrice,
                         })
                         if not saved then
                             self:SetStatus(saveError)
@@ -4270,11 +4327,13 @@ function Scanner:PushOverrides()
     ns.Compat.CraftSim:UpdateCraftSimUI()
 
     self.overridesPushed = true
-    self:SetStatus(string.format("Pushed %d reagent and %d result overrides; suppressed %d missing results.",
-        globalCount, resultCount, suppressedResultCount))
+    self:SetStatus(string.format(
+        "Pushed %d reagent and %d result overrides; capped %d lower-rank prices; suppressed %d missing results.",
+        globalCount, resultCount, cappedResultCount, suppressedResultCount))
     self:UpdateButtons()
-    SystemPrint(string.format("Pushed %d reagent and %d result overrides; suppressed %d missing results.",
-        globalCount, resultCount, suppressedResultCount))
+    SystemPrint(string.format(
+        "Pushed %d reagent and %d result overrides; capped %d lower-rank prices; suppressed %d missing results.",
+        globalCount, resultCount, cappedResultCount, suppressedResultCount))
 end
 
 function Scanner:AUCTION_HOUSE_SHOW()
