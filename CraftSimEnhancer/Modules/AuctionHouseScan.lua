@@ -24,6 +24,7 @@ Scanner.button = nil
 Scanner.panel = nil
 Scanner.configPanel = nil
 Scanner.missingPanel = nil
+Scanner.missingExportPanel = nil
 Scanner.professionCheckboxes = {}
 Scanner.configRows = {}
 Scanner.configTargets = {}
@@ -1795,6 +1796,9 @@ function Scanner:CreatePanel()
         if Scanner.missingPanel then
             Scanner.missingPanel:Hide()
         end
+        if Scanner.missingExportPanel then
+            Scanner.missingExportPanel:Hide()
+        end
         Scanner:UpdateLauncherTabState()
     end)
 
@@ -1912,6 +1916,9 @@ function Scanner:TogglePanel()
         if self.missingPanel then
             self.missingPanel:Hide()
         end
+        if self.missingExportPanel then
+            self.missingExportPanel:Hide()
+        end
     else
         self.panel:Show()
         self:UpdateButtons()
@@ -1979,6 +1986,14 @@ function Scanner:CreateMissingPanel()
     panel.closeButton:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -4, -4)
     panel.closeButton:SetScript("OnClick", function()
         panel:Hide()
+    end)
+
+    panel.copyButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    panel.copyButton:SetSize(104, 22)
+    panel.copyButton:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -38, -10)
+    panel.copyButton:SetText("Copy Report")
+    panel.copyButton:SetScript("OnClick", function()
+        Scanner:OpenMissingReport()
     end)
 
     panel.headerText = panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
@@ -2113,6 +2128,151 @@ end
 ---@return number
 function Scanner:GetMissingDisplayCount()
     return #self:GetDisplayMissingResults()
+end
+
+---@param value any
+---@return string
+function Scanner:SanitizeMissingReportField(value)
+    local text = tostring(value or "")
+    text = string.gsub(text, "\r", " ")
+    text = string.gsub(text, "\n", " ")
+    text = string.gsub(text, "\t", " ")
+    return text
+end
+
+---@return string report
+function Scanner:GetMissingReportText()
+    local displayResults = self:GetDisplayMissingResults()
+    local lines = {
+        "CraftSim Enhancer Missing AH Report",
+        "Addon Version\t" .. tostring(ns.version or "unknown"),
+        "Grouped Missing Items\t" .. tostring(#displayResults),
+        "Missing Scan Targets\t" .. tostring(#self.missingResults),
+        "",
+        "Item\tItemID\tTargets\tItem Levels\tReason\tDetails",
+    }
+
+    for _, result in ipairs(displayResults) do
+        local levels = ""
+        if result.itemLevelOrder and #result.itemLevelOrder > 0 then
+            local values = {}
+            for _, itemLevel in ipairs(result.itemLevelOrder) do
+                table.insert(values, tostring(itemLevel))
+            end
+            levels = table.concat(values, ",")
+        elseif result.itemLevel and result.itemLevel > 0 then
+            levels = tostring(result.itemLevel)
+        end
+
+        table.insert(lines, table.concat({
+            self:SanitizeMissingReportField(result.label or ("Item " .. tostring(result.itemID))),
+            tostring(result.itemID or ""),
+            tostring(result.count or 1),
+            levels,
+            self:SanitizeMissingReportField(result.reasonShort or self:GetMissingReasonShort(result)),
+            self:SanitizeMissingReportField(result.error or "No posted auctions found."),
+        }, "\t"))
+    end
+
+    return table.concat(lines, "\n")
+end
+
+function Scanner:CreateMissingExportPanel()
+    if self.missingExportPanel then
+        return
+    end
+
+    local panel = CreateFrame("Frame", "CraftSimEnhancerAuctionHouseScanMissingExportPanel", UIParent,
+        "BackdropTemplate")
+    panel:SetSize(680, 500)
+    panel:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+    panel:SetFrameStrata("FULLSCREEN_DIALOG")
+    panel:SetFrameLevel(200)
+    panel:SetMovable(true)
+    panel:SetClampedToScreen(true)
+    panel:EnableMouse(true)
+    panel:RegisterForDrag("LeftButton")
+    panel:SetScript("OnDragStart", function(frame)
+        frame:StartMoving()
+    end)
+    panel:SetScript("OnDragStop", function(frame)
+        frame:StopMovingOrSizing()
+    end)
+    panel:SetBackdrop({
+        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+        tile = true,
+        tileSize = 32,
+        edgeSize = 24,
+        insets = { left = 6, right = 6, top = 6, bottom = 6 },
+    })
+
+    panel.title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    panel.title:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -16)
+    panel.title:SetText("Missing AH Report")
+
+    panel.instructions = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    panel.instructions:SetPoint("TOPLEFT", panel.title, "BOTTOMLEFT", 0, -8)
+    panel.instructions:SetText("Press Ctrl+C (Windows) or Command+C (Mac), then paste the report into a message.")
+
+    panel.closeButton = CreateFrame("Button", nil, panel, "UIPanelCloseButton")
+    panel.closeButton:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -4, -4)
+    panel.closeButton:SetScript("OnClick", function()
+        panel:Hide()
+    end)
+
+    panel.selectButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    panel.selectButton:SetSize(100, 22)
+    panel.selectButton:SetPoint("BOTTOM", panel, "BOTTOM", 0, 14)
+    panel.selectButton:SetText("Select All")
+
+    panel.scrollFrame = CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
+    panel.scrollFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -68)
+    panel.scrollFrame:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -38, 48)
+
+    panel.editBox = CreateFrame("EditBox", nil, panel.scrollFrame)
+    panel.editBox:SetMultiLine(true)
+    panel.editBox:SetAutoFocus(false)
+    panel.editBox:SetFontObject(ChatFontNormal)
+    panel.editBox:SetWidth(610)
+    panel.editBox:SetMaxLetters(0)
+    panel.editBox:SetScript("OnEscapePressed", function(editBox)
+        editBox:ClearFocus()
+        panel:Hide()
+    end)
+    panel.editBox:SetScript("OnTextChanged", function()
+        panel.scrollFrame:UpdateScrollChildRect()
+    end)
+    panel.scrollFrame:SetScrollChild(panel.editBox)
+
+    panel.selectButton:SetScript("OnClick", function()
+        panel.editBox:SetFocus()
+        panel.editBox:HighlightText()
+    end)
+
+    panel:Hide()
+    self.missingExportPanel = panel
+end
+
+function Scanner:OpenMissingReport()
+    if #self.missingResults == 0 then
+        self:SetStatus("No missing scan items to copy.")
+        return
+    end
+
+    self:CreateMissingExportPanel()
+    local panel = self.missingExportPanel
+    if not panel then
+        return
+    end
+
+    local report = self:GetMissingReportText()
+    local _, newlineCount = string.gsub(report, "\n", "\n")
+    panel.editBox:SetHeight(math.max(380, ((newlineCount or 0) + 1) * 14 + 20))
+    panel.editBox:SetText(report)
+    panel:Show()
+    panel.editBox:SetFocus()
+    panel.editBox:HighlightText()
 end
 
 ---@param row Frame
