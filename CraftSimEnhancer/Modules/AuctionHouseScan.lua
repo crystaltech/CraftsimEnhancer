@@ -688,6 +688,18 @@ function Scanner:MakeItemKey(itemID, itemLevel)
     }
 end
 
+---@param itemID number
+---@return ItemKey
+function Scanner:MakeClearedItemKey(itemID)
+    local itemKey = self:MakeItemKey(itemID, 0)
+    -- MakeItemKey can normalize level zero to the item's base level. Blizzard's
+    -- by-item search requires these fields to be explicitly cleared, just as
+    -- AuctionHouseUtil.ConvertItemSellItemKey does in the base UI.
+    itemKey.itemLevel = 0
+    itemKey.itemSuffix = 0
+    return itemKey
+end
+
 ---@param itemKey ItemKey?
 ---@return ItemKey?
 function Scanner:CopyItemKey(itemKey)
@@ -730,16 +742,13 @@ function Scanner:GetTargetItemResultKey(target)
     if not target then
         return nil
     end
-    if target.usesBroadItemSearch then
-        return target.itemSearchKey or self:GetTargetQueryItemKey(target)
-    end
     return target.resultItemKey or target.itemSearchKey or self:GetTargetQueryItemKey(target)
 end
 
 ---@param target table
 ---@param itemKey ItemKey
 function Scanner:CaptureItemResultKey(target, itemKey)
-    if not target or not itemKey or target.usesBroadItemSearch then
+    if not target or not itemKey then
         return
     end
     target.resultItemKey = self:CopyItemKey(itemKey)
@@ -3814,8 +3823,8 @@ function Scanner:TrySendNextQuery()
     target.genericResponseTime = nil
     target.emptyResultRetrySent = false
     target.usesBroadItemSearch = self:ShouldUseBroadItemSearch(target)
-    target.activeItemKey = self:MakeItemKey(target.itemID,
-        target.usesBroadItemSearch and 0 or target.queryItemLevel)
+    target.activeItemKey = target.usesBroadItemSearch and self:MakeClearedItemKey(target.itemID) or
+        self:MakeItemKey(target.itemID, target.queryItemLevel)
     target.itemSearchKey = self:CopyItemKey(target.activeItemKey)
     target.resultItemKey = nil
     target.queryAttempts = 0
@@ -4085,7 +4094,7 @@ function Scanner:TrySendSellSearchFallback(target, force)
     end
 
     target.sellSearchFallbackSent = true
-    target.activeItemKey = self:MakeItemKey(target.itemID, 0)
+    target.activeItemKey = self:MakeClearedItemKey(target.itemID)
     target.itemSearchKey = self:CopyItemKey(target.activeItemKey)
     target.resultItemKey = nil
     target.usesBroadItemSearch = false
@@ -4294,8 +4303,8 @@ function Scanner:RetryEmptySearch(target)
     target.queryStartTime = GetTime()
     target.currentRawItemRows = nil
     target.resultItemKey = nil
-    target.activeItemKey = self:MakeItemKey(target.itemID,
-        target.usesBroadItemSearch and 0 or target.queryItemLevel)
+    target.activeItemKey = target.usesBroadItemSearch and self:MakeClearedItemKey(target.itemID) or
+        self:MakeItemKey(target.itemID, target.queryItemLevel)
     target.itemSearchKey = self:CopyItemKey(target.activeItemKey)
 
     local ok, err = pcall(sendFunction, self:GetTargetQueryItemKey(target),
