@@ -1,0 +1,32 @@
+## Interface: 120007
+## Title: CraftSim Enhancer
+## Category: Professions
+## Notes: Adds custom enhancements and additional features to CraftSim.
+## Author: crystal_tech
+## Version: 1.0.0
+## RequiredDeps: CraftSim
+## SavedVariables: CraftSimEnhancerDB
+
+Core.lua
+Localization/enUS.lua
+Config.lua
+Debug.lua
+Compat/WoW.lua
+Compat/CraftSim.lua
+
+Data/GeneratedRecipes/ItemMetadata.lua
+Data/GeneratedRecipes/Alchemy.lua
+Data/GeneratedRecipes/Blacksmithing.lua
+Data/GeneratedRecipes/Cooking.lua
+Data/GeneratedRecipes/Enchanting.lua
+Data/GeneratedRecipes/Engineering.lua
+Data/GeneratedRecipes/Inscription.lua
+Data/GeneratedRecipes/Jewelcrafting.lua
+Data/GeneratedRecipes/Leatherworking.lua
+Data/GeneratedRecipes/Tailoring.lua
+
+Modules/AuctionHouseScan.lua
+Modules/VendorBuy.lua
+Modules/VendorShoppingListNotice.lua
+
+Init.lua
