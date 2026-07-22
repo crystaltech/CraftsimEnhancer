@@ -3621,6 +3621,20 @@ function Scanner:SchedulePendingTimeout(seconds)
         if Scanner.isScanning and Scanner.pendingQuery and
             Scanner.pendingTimeoutToken == token then
             local target = Scanner.pendingQuery
+            if not Scanner:IsAuctionThrottleReady() then
+                Scanner:SetStatus("Waiting for the Auction House throttle.")
+                Scanner:SchedulePendingTimeout()
+                Scanner:SchedulePendingPoll(0.35)
+                return
+            end
+
+            -- Blizzard occasionally populates the result cache without
+            -- sending the corresponding result event. Inspect the cache once
+            -- before retrying or declaring the request timed out.
+            if Scanner:TryProcessAvailableResultsAtTimeout(target) then
+                return
+            end
+
             if Scanner:TrySendItemLevelFallback(target, true) or
                 Scanner:TrySendSellSearchFallback(target, true) then
                 Scanner:SchedulePendingPoll(0.35)
@@ -3628,12 +3642,6 @@ function Scanner:SchedulePendingTimeout(seconds)
             end
             if Scanner:CanTryItemLevelFallback(target) or
                 Scanner:CanTrySellSearchFallback(target) then
-                Scanner:SetStatus("Waiting for the Auction House throttle.")
-                Scanner:SchedulePendingTimeout()
-                Scanner:SchedulePendingPoll(0.35)
-                return
-            end
-            if not Scanner:IsAuctionThrottleReady() then
                 Scanner:SetStatus("Waiting for the Auction House throttle.")
                 Scanner:SchedulePendingTimeout()
                 Scanner:SchedulePendingPoll(0.35)
@@ -4038,6 +4046,28 @@ function Scanner:PollPendingResults()
         return
     end
     self:SchedulePendingPoll(0.35)
+end
+
+---@param target table
+---@return boolean processed
+function Scanner:TryProcessAvailableResultsAtTimeout(target)
+    if not target or self.pendingQuery ~= target then
+        return false
+    end
+
+    target.resultsReceived = true
+    for _, resultType in ipairs(self:GetResultTypesToTry(target)) do
+        local rows = self:GetRowsForResultType(resultType)
+        local hasUnfilteredRankRows = resultType == "item" and target.requiredBonusIDs and
+            target.currentRawItemRows and #target.currentRawItemRows > 0
+        if #rows > 0 or hasUnfilteredRankRows or self:HasFullResults(resultType) then
+            self:ProcessPendingResults(resultType)
+            return true
+        end
+    end
+
+    target.resultsReceived = false
+    return false
 end
 
 ---@param resultType "commodity" | "item"
