@@ -19,6 +19,7 @@ local EVENTS = {
 local MIN_QUERY_INTERVAL = 0.65
 local PENDING_TIMEOUT_SECONDS = 10
 local MAX_MORE_RESULT_REQUESTS = 5
+local GENERIC_RESULT_GRACE_SECONDS = 1.0
 
 Scanner.button = nil
 Scanner.panel = nil
@@ -3647,6 +3648,9 @@ function Scanner:SchedulePendingTimeout(seconds)
                 Scanner:SchedulePendingPoll(0.35)
                 return
             end
+            if Scanner:TryResolveEmptyCompletedResultsAtTimeout(target) then
+                return
+            end
             target.error = "Timed out waiting for AH results."
             Scanner:FinishPendingTarget({})
         end
@@ -3689,6 +3693,9 @@ function Scanner:TrySendNextQuery()
     target.sellSearchFallbackSent = false
     target.itemLevelFallbackSent = false
     target.resultsReceived = false
+    target.genericResponseReceived = false
+    target.genericResponseTime = nil
+    target.emptyResultRetrySent = false
     target.activeItemKey = target.itemKey
 
     local queryItemKey = self:GetTargetQueryItemKey(target)
@@ -3914,6 +3921,8 @@ function Scanner:TrySendSellSearchFallback(target, force)
     target.moreRequests = 0
     target.queryStartTime = GetTime()
     target.resultsReceived = false
+    target.genericResponseReceived = false
+    target.genericResponseTime = nil
     target.error = nil
 
     local ok, err = pcall(C_AuctionHouse.SendSellSearchQuery, target.activeItemKey, self:GetSearchSorts(), false)
@@ -3953,6 +3962,8 @@ function Scanner:TrySendItemLevelFallback(target, force)
     target.moreRequests = 0
     target.queryStartTime = GetTime()
     target.resultsReceived = false
+    target.genericResponseReceived = false
+    target.genericResponseTime = nil
     target.error = nil
 
     local ok, err = pcall(C_AuctionHouse.SendSearchQuery, target.activeItemKey, self:GetSearchSorts(), false)
@@ -4022,6 +4033,13 @@ function Scanner:PollPendingResults()
     end
 
     if not target.resultsReceived then
+        local genericResponseAge = target.genericResponseTime and (GetTime() - target.genericResponseTime) or 0
+        if target.genericResponseReceived and genericResponseAge >= GENERIC_RESULT_GRACE_SECONDS then
+            if self:TryProcessAvailableResultsAtTimeout(target) or
+                self:TryResolveEmptyCompletedResultsAtTimeout(target) then
+                return
+            end
+        end
         self:SchedulePendingPoll(0.35)
         return
     end
@@ -4060,7 +4078,7 @@ function Scanner:TryProcessAvailableResultsAtTimeout(target)
         local rows = self:GetRowsForResultType(resultType)
         local hasUnfilteredRankRows = resultType == "item" and target.requiredBonusIDs and
             target.currentRawItemRows and #target.currentRawItemRows > 0
-        if #rows > 0 or hasUnfilteredRankRows or self:HasFullResults(resultType) then
+        if #rows > 0 or hasUnfilteredRankRows then
             self:ProcessPendingResults(resultType)
             return true
         end
@@ -4068,6 +4086,61 @@ function Scanner:TryProcessAvailableResultsAtTimeout(target)
 
     target.resultsReceived = false
     return false
+end
+
+---@param target table
+---@return boolean sent
+function Scanner:RetryEmptySearch(target)
+    if not target or target.emptyResultRetrySent or not C_AuctionHouse or
+        not C_AuctionHouse.SendSearchQuery or not self:IsAuctionThrottleReady() then
+        return false
+    end
+
+    target.emptyResultRetrySent = true
+    target.resultsReceived = false
+    target.genericResponseReceived = false
+    target.genericResponseTime = nil
+    target.moreRequests = 0
+    target.queryStartTime = GetTime()
+    target.currentRawItemRows = nil
+
+    local ok, err = pcall(C_AuctionHouse.SendSearchQuery, self:GetTargetQueryItemKey(target),
+        self:GetSearchSorts(), false)
+    self.nextQueryTime = GetTime() + MIN_QUERY_INTERVAL
+    if not ok then
+        target.error = "Empty-result retry failed: " .. tostring(err)
+        ns.Debug:Log("Empty-result retry failed for itemID " .. tostring(target.itemID) .. ": " .. tostring(err))
+        return false
+    end
+
+    self:SetStatus("Confirming empty AH results for " .. tostring(target.label))
+    self:SchedulePendingTimeout()
+    self:SchedulePendingPoll(0.35)
+    return true
+end
+
+---@param target table
+---@return boolean handled
+function Scanner:TryResolveEmptyCompletedResultsAtTimeout(target)
+    if not target or not target.genericResponseReceived then
+        return false
+    end
+
+    local resultTypes = self:GetResultTypesToTry(target)
+    local resultType = resultTypes[1]
+    if not resultType or not self:HasFullResults(resultType) then
+        return false
+    end
+
+    local alreadyRetried = target.emptyResultRetrySent or target.sellSearchFallbackSent or
+        target.itemLevelFallbackSent
+    if not alreadyRetried then
+        return self:RetryEmptySearch(target)
+    end
+
+    target.resultsReceived = true
+    self:ProcessPendingResults(resultType)
+    return true
 end
 
 ---@param resultType "commodity" | "item"
@@ -4102,6 +4175,8 @@ function Scanner:RequestMoreResultsIfNeeded(resultType, rows)
 
     if ok and hasFullResults == false then
         target.resultsReceived = false
+        target.genericResponseReceived = false
+        target.genericResponseTime = nil
         self:SetStatus("Loading more results for " .. tostring(target.label))
         self:SchedulePendingTimeout()
         self:SchedulePendingPoll(0.35)
@@ -4533,11 +4608,11 @@ end
 
 function Scanner:AUCTION_HOUSE_THROTTLED_MESSAGE_RESPONSE_RECEIVED()
     if self.pendingQuery then
-        -- Some non-commodity searches only produce the generic throttle
-        -- response after their result cache has been populated.  Treat it as
-        -- permission to inspect the cache instead of waiting indefinitely for
-        -- a second, item-specific event that may never be sent.
-        self.pendingQuery.resultsReceived = true
+        -- This confirms that Blizzard answered a throttled request, but the
+        -- item-specific cache may not be populated yet. Do not authorize an
+        -- empty result until an item event arrives or a clean retry agrees.
+        self.pendingQuery.genericResponseReceived = true
+        self.pendingQuery.genericResponseTime = GetTime()
         self:SchedulePendingPoll(0.05)
     else
         self:TrySendNextQuery()
