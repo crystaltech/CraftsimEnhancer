@@ -3114,8 +3114,10 @@ function Scanner:AddOutputTargets(recipe, output, targetsByKey, targets)
     local added = false
     if output.rankItemIDs then
         ForEachQualityItem(output.rankItemIDs, output.rankCount, function(qualityID, itemID)
-            local itemLevel = self:GetOutputItemLevel(output, qualityID)
-            added = self:AddScanTarget(targetsByKey, targets, itemID, itemLevel, output.itemRef, {
+            -- The item ID already identifies the quality.  Filtering these
+            -- results by generated item level can hide valid listings when
+            -- Blizzard changes an expansion's item-level scale.
+            added = self:AddScanTarget(targetsByKey, targets, itemID, 0, output.itemRef, {
                 kind = "result",
                 recipeID = recipe.recipeID,
                 itemID = itemID,
@@ -3145,8 +3147,10 @@ function Scanner:AddOutputTargets(recipe, output, targetsByKey, targets)
     end
 
     for qualityID, itemID in ipairs(output.itemIDs or {}) do
-        local itemLevel = self:GetOutputItemLevel(output, qualityID)
-        added = self:AddScanTarget(targetsByKey, targets, itemID, itemLevel, output.itemRef, {
+        -- Unranked outputs (bags are a common example) use a broad item key.
+        -- Their AH result itemKey may report item level zero even when the
+        -- generated recipe data has a base item level.
+        added = self:AddScanTarget(targetsByKey, targets, itemID, 0, output.itemRef, {
             kind = "result",
             recipeID = recipe.recipeID,
             itemID = itemID,
@@ -4149,6 +4153,11 @@ end
 
 function Scanner:AUCTION_HOUSE_THROTTLED_MESSAGE_RESPONSE_RECEIVED()
     if self.pendingQuery then
+        -- Some non-commodity searches only produce the generic throttle
+        -- response after their result cache has been populated.  Treat it as
+        -- permission to inspect the cache instead of waiting indefinitely for
+        -- a second, item-specific event that may never be sent.
+        self.pendingQuery.resultsReceived = true
         self:SchedulePendingPoll(0.05)
     else
         self:TrySendNextQuery()
