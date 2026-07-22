@@ -1637,6 +1637,52 @@ function Scanner:SetStatus(text)
     end
 end
 
+---@param target table?
+---@param eventName string
+---@param detail string?
+function Scanner:RecordQueryDiagnostic(target, eventName, detail)
+    if not target then
+        return
+    end
+    target.diagnosticEvents = target.diagnosticEvents or {}
+    if #target.diagnosticEvents >= 24 then
+        return
+    end
+    local entry = tostring(eventName)
+    if detail and detail ~= "" then
+        entry = entry .. "(" .. tostring(detail) .. ")"
+    end
+    table.insert(target.diagnosticEvents, entry)
+end
+
+---@param target table?
+---@return string
+function Scanner:GetTargetDiagnosticSummary(target)
+    if not target then
+        return ""
+    end
+    local parts = {
+        "type=" .. tostring(target.resultType or "unknown"),
+        "mode=" .. tostring(target.pricingMode or "unknown"),
+        "q=" .. tostring(target.outputQualityID or "-"),
+        "attempts=" .. tostring(target.queryAttempts or 0),
+        "itemAPI=" .. tostring(target.diagnosticItemAPIResults or "-"),
+        "itemRows=" .. tostring(target.diagnosticRawItemRows or "-"),
+        "matched=" .. tostring(target.diagnosticMatchedRows or "-"),
+        "commodityAPI=" .. tostring(target.diagnosticCommodityAPIResults or "-"),
+        "commodityRows=" .. tostring(target.diagnosticCommodityRows or "-"),
+        "fullItem=" .. tostring(target.diagnosticFullItem),
+        "fullCommodity=" .. tostring(target.diagnosticFullCommodity),
+    }
+    if target.diagnosticItemLevels and target.diagnosticItemLevels ~= "" then
+        table.insert(parts, "levels=" .. target.diagnosticItemLevels)
+    end
+    if target.diagnosticEvents and #target.diagnosticEvents > 0 then
+        table.insert(parts, "events=" .. table.concat(target.diagnosticEvents, ">"))
+    end
+    return table.concat(parts, ";")
+end
+
 function Scanner:UpdateProgressText()
     if not self.panel or not self.panel.progressText then
         return
@@ -2215,6 +2261,8 @@ function Scanner:GetDisplayMissingResults()
                 itemLevelMap = {},
                 itemLevelOrder = {},
                 suppressOnPush = result.suppressOnPush,
+                diagnosticMap = {},
+                diagnostics = {},
             }
             grouped[key] = display
             table.insert(results, display)
@@ -2225,6 +2273,11 @@ function Scanner:GetDisplayMissingResults()
             display.error = result.error
         end
         display.suppressOnPush = display.suppressOnPush or result.suppressOnPush
+
+        if result.diagnostic and result.diagnostic ~= "" and not display.diagnosticMap[result.diagnostic] then
+            display.diagnosticMap[result.diagnostic] = true
+            table.insert(display.diagnostics, result.diagnostic)
+        end
 
         local itemLevel = tonumber(result.itemLevel) or 0
         if itemLevel > 0 and not display.itemLevelMap[itemLevel] then
@@ -2264,7 +2317,7 @@ function Scanner:GetMissingReportText()
         "Grouped Missing Items\t" .. tostring(#displayResults),
         "Missing Scan Targets\t" .. tostring(#self.missingResults),
         "",
-        "Item\tItemID\tTargets\tItem Levels\tReason\tDetails",
+        "Item\tItemID\tTargets\tItem Levels\tReason\tDetails\tDiagnostics",
     }
 
     for _, result in ipairs(displayResults) do
@@ -2286,6 +2339,7 @@ function Scanner:GetMissingReportText()
             levels,
             self:SanitizeMissingReportField(result.reasonShort or self:GetMissingReasonShort(result)),
             self:SanitizeMissingReportField(result.error or "No posted auctions found."),
+            self:SanitizeMissingReportField(table.concat(result.diagnostics or {}, " || ")),
         }, "\t"))
     end
 
@@ -3622,6 +3676,7 @@ function Scanner:SchedulePendingTimeout(seconds)
         if Scanner.isScanning and Scanner.pendingQuery and
             Scanner.pendingTimeoutToken == token then
             local target = Scanner.pendingQuery
+            Scanner:RecordQueryDiagnostic(target, "TIMEOUT")
             if not Scanner:IsAuctionThrottleReady() then
                 Scanner:SetStatus("Waiting for the Auction House throttle.")
                 Scanner:SchedulePendingTimeout()
@@ -3697,6 +3752,8 @@ function Scanner:TrySendNextQuery()
     target.genericResponseTime = nil
     target.emptyResultRetrySent = false
     target.activeItemKey = target.itemKey
+    target.queryAttempts = 0
+    target.diagnosticEvents = {}
 
     local queryItemKey = self:GetTargetQueryItemKey(target)
     local cachedRows = target.pricingMode == "output" and queryItemKey and
@@ -3706,6 +3763,7 @@ function Scanner:TrySendNextQuery()
         target.currentRawItemRows = cachedRows
         target.usedCachedRows = true
         target.resultsReceived = true
+        self:RecordQueryDiagnostic(target, "CACHE", tostring(#cachedRows))
         self:SetStatus("Using current AH results for " .. tostring(target.label) .. " (" ..
             tostring(target.itemID) .. ")")
         self:UpdateProgressText()
@@ -3714,6 +3772,8 @@ function Scanner:TrySendNextQuery()
     end
 
     local ok, err = pcall(C_AuctionHouse.SendSearchQuery, queryItemKey, self:GetSearchSorts(), false)
+    target.queryAttempts = target.queryAttempts + 1
+    self:RecordQueryDiagnostic(target, "SEND", "level=" .. tostring(queryItemKey and queryItemKey.itemLevel or 0))
     self.nextQueryTime = GetTime() + MIN_QUERY_INTERVAL
     if not ok then
         target.error = tostring(err)
@@ -3756,6 +3816,10 @@ function Scanner:GetCommodityRows(itemID)
     if not ok then
         return rows
     end
+    local target = self.pendingQuery
+    if target then
+        target.diagnosticCommodityAPIResults = numResults
+    end
 
     for index = 1, numResults do
         local success, result = pcall(C_AuctionHouse.GetCommoditySearchResultInfo, itemID, index)
@@ -3772,6 +3836,9 @@ function Scanner:GetCommodityRows(itemID)
     end
 
     table.sort(rows, function(a, b) return a.unitPrice < b.unitPrice end)
+    if target then
+        target.diagnosticCommodityRows = #rows
+    end
     return rows
 end
 
@@ -3786,6 +3853,9 @@ function Scanner:GetItemRows(itemKey, target)
         local ok, numResults = pcall(C_AuctionHouse.GetNumItemSearchResults, itemKey)
         if not ok then
             return rows
+        end
+        if target then
+            target.diagnosticItemAPIResults = numResults
         end
 
         for index = 1, numResults do
@@ -3815,6 +3885,23 @@ function Scanner:GetItemRows(itemKey, target)
             target.currentRawItemRows = rawRows
         end
     end
+    if target then
+        target.diagnosticRawItemRows = #rawRows
+        local observedLevels = {}
+        local observedLevelMap = {}
+        for _, rawRow in ipairs(rawRows) do
+            local observedLevel = tonumber(rawRow.itemKey and rawRow.itemKey.itemLevel)
+            if observedLevel and observedLevel > 0 and not observedLevelMap[observedLevel] then
+                observedLevelMap[observedLevel] = true
+                table.insert(observedLevels, observedLevel)
+            end
+        end
+        table.sort(observedLevels)
+        for index, observedLevel in ipairs(observedLevels) do
+            observedLevels[index] = tostring(observedLevel)
+        end
+        target.diagnosticItemLevels = table.concat(observedLevels, ",")
+    end
 
     local rankItemLevels
     if target and target.requiredBonusIDs then
@@ -3841,6 +3928,9 @@ function Scanner:GetItemRows(itemKey, target)
     end
 
     table.sort(rows, function(a, b) return a.unitPrice < b.unitPrice end)
+    if target then
+        target.diagnosticMatchedRows = #rows
+    end
     return rows
 end
 
@@ -3869,6 +3959,11 @@ function Scanner:HasFullResults(resultType)
         ok, hasFullResults = pcall(C_AuctionHouse.HasFullItemSearchResults, self:GetTargetQueryItemKey(target))
     end
     if ok then
+        if resultType == "item" then
+            target.diagnosticFullItem = hasFullResults == true
+        else
+            target.diagnosticFullCommodity = hasFullResults == true
+        end
         return hasFullResults == true
     end
     return false
@@ -3926,6 +4021,8 @@ function Scanner:TrySendSellSearchFallback(target, force)
     target.error = nil
 
     local ok, err = pcall(C_AuctionHouse.SendSellSearchQuery, target.activeItemKey, self:GetSearchSorts(), false)
+    target.queryAttempts = (target.queryAttempts or 0) + 1
+    self:RecordQueryDiagnostic(target, "SEND_SELL")
     self.nextQueryTime = GetTime() + MIN_QUERY_INTERVAL
     if not ok then
         target.error = "Commodity sell search failed: " .. tostring(err)
@@ -3967,6 +4064,8 @@ function Scanner:TrySendItemLevelFallback(target, force)
     target.error = nil
 
     local ok, err = pcall(C_AuctionHouse.SendSearchQuery, target.activeItemKey, self:GetSearchSorts(), false)
+    target.queryAttempts = (target.queryAttempts or 0) + 1
+    self:RecordQueryDiagnostic(target, "SEND_BROAD")
     self.nextQueryTime = GetTime() + MIN_QUERY_INTERVAL
     if not ok then
         target.error = "Broad item search failed: " .. tostring(err)
@@ -4055,6 +4154,7 @@ function Scanner:PollPendingResults()
         local hasUnfilteredRankRows = resultType == "item" and target.requiredBonusIDs and
             target.currentRawItemRows and #target.currentRawItemRows > 0
         if #rows > 0 or hasUnfilteredRankRows then
+            self:RecordQueryDiagnostic(target, "CACHE_ROWS", resultType .. ":" .. tostring(#rows))
             self:ProcessPendingResults(resultType)
             return
         elseif self:HasFullResults(resultType) then
@@ -4112,6 +4212,8 @@ function Scanner:RetryEmptySearch(target)
 
     local ok, err = pcall(C_AuctionHouse.SendSearchQuery, self:GetTargetQueryItemKey(target),
         self:GetSearchSorts(), false)
+    target.queryAttempts = (target.queryAttempts or 0) + 1
+    self:RecordQueryDiagnostic(target, "SEND_EMPTY_RETRY")
     self.nextQueryTime = GetTime() + MIN_QUERY_INTERVAL
     if not ok then
         target.error = "Empty-result retry failed: " .. tostring(err)
@@ -4137,6 +4239,7 @@ function Scanner:TryResolveEmptyCompletedResultsAtTimeout(target)
     if not resultType or not self:HasFullResults(resultType) then
         return false
     end
+    self:RecordQueryDiagnostic(target, "EMPTY_FULL", resultType)
 
     local alreadyRetried = target.emptyResultRetrySent or target.sellSearchFallbackSent or
         target.itemLevelFallbackSent
@@ -4183,6 +4286,7 @@ function Scanner:RequestMoreResultsIfNeeded(resultType, rows)
         target.resultsReceived = false
         target.genericResponseReceived = false
         target.genericResponseTime = nil
+        self:RecordQueryDiagnostic(target, "MORE", resultType)
         self:SetStatus("Loading more results for " .. tostring(target.label))
         self:SchedulePendingTimeout()
         self:SchedulePendingPoll(0.35)
@@ -4393,6 +4497,7 @@ function Scanner:FinishPendingTarget(rows, resultType)
             itemLevel = target.itemLevel,
             label = target.label,
             error = target.error,
+            diagnostic = self:GetTargetDiagnosticSummary(target),
             overrideTargets = target.overrideTargets,
         })
         self:SetStatus("Skipping " .. tostring(target.label) .. " (" .. tostring(target.itemID) .. "): " ..
@@ -4607,6 +4712,7 @@ end
 
 function Scanner:AUCTION_HOUSE_THROTTLED_MESSAGE_DROPPED()
     if self.pendingQuery then
+        self:RecordQueryDiagnostic(self.pendingQuery, "DROPPED")
         self.pendingQuery.error = "Auction House throttled message dropped."
         self:FinishPendingTarget({})
     end
@@ -4619,6 +4725,7 @@ function Scanner:AUCTION_HOUSE_THROTTLED_MESSAGE_RESPONSE_RECEIVED()
         -- empty result until an item event arrives or a clean retry agrees.
         self.pendingQuery.genericResponseReceived = true
         self.pendingQuery.genericResponseTime = GetTime()
+        self:RecordQueryDiagnostic(self.pendingQuery, "GENERIC_RESPONSE")
         self:SchedulePendingPoll(0.05)
     else
         self:TrySendNextQuery()
@@ -4627,6 +4734,10 @@ end
 
 function Scanner:AUCTION_HOUSE_NEW_RESULTS_RECEIVED(itemKey)
     local target = self.pendingQuery
+    if target then
+        self:RecordQueryDiagnostic(target, "NEW_RESULTS",
+            tostring(itemKey and itemKey.itemID or "-") .. ":" .. tostring(itemKey and itemKey.itemLevel or "-"))
+    end
     if itemKey and not self:ItemKeyMatchesTarget(itemKey, target) then
         return
     end
@@ -4645,12 +4756,16 @@ function Scanner:COMMODITY_SEARCH_RESULTS_RECEIVED()
     if not target or not self:IsLikelyCommodityTarget(target) then
         return
     end
+    self:RecordQueryDiagnostic(target, "COMMODITY_RECEIVED")
     target.resultsReceived = true
     self:ScheduleResultProcessing(target, "commodity")
 end
 
 function Scanner:COMMODITY_SEARCH_RESULTS_UPDATED(itemID)
     local target = self.pendingQuery
+    if target then
+        self:RecordQueryDiagnostic(target, "COMMODITY_UPDATED", tostring(itemID or "-"))
+    end
     if not target or tonumber(itemID) ~= tonumber(target.itemID) then
         return
     end
@@ -4664,6 +4779,10 @@ end
 
 function Scanner:ITEM_SEARCH_RESULTS_UPDATED(itemKey)
     local target = self.pendingQuery
+    if target then
+        self:RecordQueryDiagnostic(target, "ITEM_UPDATED",
+            tostring(itemKey and itemKey.itemID or "-") .. ":" .. tostring(itemKey and itemKey.itemLevel or "-"))
+    end
     if not self:ItemKeyMatchesTarget(itemKey, target) then
         return
     end
