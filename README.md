@@ -9,7 +9,7 @@ The addon is currently developed for World of Warcraft Retail interface 120007 a
 - Scan generated Midnight crafts and reagents at the Auction House.
 - Filter scans by profession, category, and configurable presets.
 - Calculate input prices from fill quantities with outlier trimming.
-- Push reagent and recipe-result prices into CraftSim's price overrides.
+- Push reagent and recipe-result prices into CraftSim's price overrides. Missing outputs use CraftSim's saved average crafting cost divided by 95% for an AH-fee break-even estimate; lower ranks are capped below real higher-rank listings.
 - Buy outstanding vendor-sold reagents directly from an open merchant.
 - Deduct purchased quantities from the corresponding Auctionator shopping list when Auctionator is installed.
 - Warn when a CraftSim shopping list includes vendor-sold reagents.
@@ -21,6 +21,8 @@ The addon is currently developed for World of Warcraft Retail interface 120007 a
 - CraftSim 26.1.10 or a compatible later release
 - Auctionator is optional and enables shopping-list integration
 - TradeSkillMaster is optional and can provide fallback pricing
+
+For missing-output estimates, enable CraftSim's **Update Last Crafting Cost DB** option in Recipe Scan or Craft Lists and run it once. If CraftSim has no saved cost for an output, CraftSim Enhancer skips that override instead of inventing a price.
 
 ## Installation
 

@@ -20,6 +20,8 @@ local MIN_QUERY_INTERVAL = 0.65
 local PENDING_TIMEOUT_SECONDS = 10
 local MAX_MORE_RESULT_REQUESTS = 5
 local GENERIC_RESULT_GRACE_SECONDS = 1.0
+local AUCTION_HOUSE_CUT = 0.05
+local ESTIMATED_RESULT_SOURCE = "Estimated — no auctions"
 
 Scanner.button = nil
 Scanner.panel = nil
@@ -2267,8 +2269,20 @@ function Scanner:GetMissingRowTooltip(result)
         table.insert(lines, "Item Level: " .. tostring(result.itemLevel))
     end
     table.insert(lines, "Reason: " .. tostring(result.error or "No posted auctions found."))
-    if result.suppressOnPush then
-        table.insert(lines, "Result override on push: 0g 0s 1c")
+    if result.estimatedPrice then
+        table.insert(lines, "Override source: " .. ESTIMATED_RESULT_SOURCE)
+        table.insert(lines, "Estimated price: " .. ns.Compat.WoW:FormatMoney(result.estimatedPrice))
+        table.insert(lines, "CraftSim average cost: " .. ns.Compat.WoW:FormatMoney(result.craftingCost))
+        if result.costQualityID and result.qualityID and result.costQualityID ~= result.qualityID then
+            table.insert(lines, "Cost fallback: saved rank " .. tostring(result.costQualityID))
+        end
+        if result.estimateCapped then
+            table.insert(lines, "Capped below a real higher-rank listing.")
+        end
+    elseif result.estimateSkipped then
+        table.insert(lines, "Estimate skipped: CraftSim has no saved average crafting cost.")
+    elseif result.estimateOnPush then
+        table.insert(lines, "Result override on push: break-even estimate from CraftSim's saved average cost.")
     end
     return table.concat(lines, "\n")
 end
@@ -2283,7 +2297,12 @@ function Scanner:GetMissingReasonShort(result)
     elseif string.find(lowerError, "rank could not be identified", 1, true) then
         return "Rank unknown"
     elseif string.find(lowerError, "no posted", 1, true) then
-        return result and result.suppressOnPush and "1c on push" or "No auctions"
+        if result and result.estimatedPrice then
+            return ESTIMATED_RESULT_SOURCE
+        elseif result and result.estimateSkipped then
+            return "No cost; skipped"
+        end
+        return result and result.estimateOnPush and "Estimate on push" or "No auctions"
     elseif string.find(lowerError, "throttled", 1, true) then
         return "Throttled"
     elseif string.find(lowerError, "dropped", 1, true) then
@@ -2316,7 +2335,7 @@ function Scanner:GetDisplayMissingResults()
     local results = {}
 
     for _, result in ipairs(self.missingResults) do
-        result.suppressOnPush = self:IsConfirmedNoAuctionResult(result) and self:MissingResultHasOutputOverride(result)
+        result.estimateOnPush = self:IsConfirmedNoAuctionResult(result) and self:MissingResultHasOutputOverride(result)
         local reasonShort = self:GetMissingReasonShort(result)
         local key = tostring(result.itemID) .. ":" .. tostring(reasonShort)
         local display = grouped[key]
@@ -2330,7 +2349,13 @@ function Scanner:GetDisplayMissingResults()
                 count = 0,
                 itemLevelMap = {},
                 itemLevelOrder = {},
-                suppressOnPush = result.suppressOnPush,
+                estimateOnPush = result.estimateOnPush,
+                estimatedPrice = result.estimatedPrice,
+                craftingCost = result.craftingCost,
+                qualityID = result.qualityID,
+                costQualityID = result.costQualityID,
+                estimateCapped = result.estimateCapped,
+                estimateSkipped = result.estimateSkipped,
                 diagnosticMap = {},
                 diagnostics = {},
             }
@@ -2342,7 +2367,13 @@ function Scanner:GetDisplayMissingResults()
         if not display.error and result.error then
             display.error = result.error
         end
-        display.suppressOnPush = display.suppressOnPush or result.suppressOnPush
+        display.estimateOnPush = display.estimateOnPush or result.estimateOnPush
+        display.estimatedPrice = display.estimatedPrice or result.estimatedPrice
+        display.craftingCost = display.craftingCost or result.craftingCost
+        display.qualityID = display.qualityID or result.qualityID
+        display.costQualityID = display.costQualityID or result.costQualityID
+        display.estimateCapped = display.estimateCapped or result.estimateCapped
+        display.estimateSkipped = display.estimateSkipped or result.estimateSkipped
 
         if result.diagnostic and result.diagnostic ~= "" and not display.diagnosticMap[result.diagnostic] then
             display.diagnosticMap[result.diagnostic] = true
@@ -4662,6 +4693,7 @@ end
 
 ---@return table<string, number> pricesByOverrideKey
 ---@return number cappedCount
+---@return table<number, table<number, number>> pricesByRecipeAndQuality
 function Scanner:GetNormalizedResultOverridePrices()
     local pricesByRecipe = {}
 
@@ -4681,8 +4713,10 @@ function Scanner:GetNormalizedResultOverridePrices()
     end
 
     local normalized = {}
+    local normalizedByRecipe = {}
     local cappedCount = 0
     for recipeID, pricesByQuality in pairs(pricesByRecipe) do
+        normalizedByRecipe[recipeID] = {}
         local qualityIDs = {}
         for qualityID in pairs(pricesByQuality) do
             table.insert(qualityIDs, qualityID)
@@ -4698,10 +4732,49 @@ function Scanner:GetNormalizedResultOverridePrices()
                 cappedCount = cappedCount + 1
             end
             normalized[tostring(recipeID) .. ":" .. tostring(qualityID)] = cheapestEqualOrBetter
+            normalizedByRecipe[recipeID][qualityID] = cheapestEqualOrBetter
         end
     end
 
-    return normalized, cappedCount
+    return normalized, cappedCount, normalizedByRecipe
+end
+
+---@param expectedCost number
+---@param betterRankPrice number?
+---@return number? price
+---@return boolean capped
+function Scanner:CalculateMissingResultPrice(expectedCost, betterRankPrice)
+    expectedCost = tonumber(expectedCost)
+    if not expectedCost or expectedCost <= 0 then
+        return nil, false
+    end
+
+    -- Round down so the estimate cannot create a small artificial profit after
+    -- the Auction House cut. A real better-rank listing is always the ceiling.
+    local price = math.max(1, math.floor(expectedCost / (1 - AUCTION_HOUSE_CUT)))
+    local cap = tonumber(betterRankPrice)
+    if cap and cap > 0 then
+        cap = math.max(1, math.floor(cap) - 1)
+        if price > cap then
+            return cap, true
+        end
+    end
+    return price, false
+end
+
+---@param pricesByRecipeAndQuality table<number, table<number, number>>
+---@param recipeID number
+---@param qualityID number
+---@return number? price
+function Scanner:GetCheapestRealBetterRankPrice(pricesByRecipeAndQuality, recipeID, qualityID)
+    local pricesByQuality = pricesByRecipeAndQuality[tonumber(recipeID)] or {}
+    local cheapest
+    for listedQualityID, price in pairs(pricesByQuality) do
+        if tonumber(listedQualityID) > tonumber(qualityID) and (not cheapest or price < cheapest) then
+            cheapest = price
+        end
+    end
+    return cheapest
 end
 
 function Scanner:PushOverrides()
@@ -4714,8 +4787,11 @@ function Scanner:PushOverrides()
     local savedResults = {}
     local globalCount = 0
     local resultCount = 0
-    local suppressedResultCount = 0
-    local normalizedResultPrices, cappedResultCount = self:GetNormalizedResultOverridePrices()
+    local estimatedResultCount = 0
+    local skippedEstimateCount = 0
+    local clearedLegacyCount = 0
+    local normalizedResultPrices, cappedResultCount, pricesByRecipeAndQuality =
+        self:GetNormalizedResultOverridePrices()
 
     for _, result in ipairs(self.priceResults) do
         local price = math.floor((tonumber(result.price) or 0) + 0.5)
@@ -4760,23 +4836,60 @@ function Scanner:PushOverrides()
     end
 
     for _, missingResult in ipairs(self.missingResults or {}) do
+        missingResult.estimatedPrice = nil
+        missingResult.craftingCost = nil
+        missingResult.qualityID = nil
+        missingResult.costQualityID = nil
+        missingResult.estimateCapped = nil
+        missingResult.estimateSkipped = nil
         if self:IsConfirmedNoAuctionResult(missingResult) then
             for _, overrideTarget in ipairs(missingResult.overrideTargets or {}) do
                 if overrideTarget.kind == "result" and overrideTarget.recipeID and overrideTarget.qualityID then
                     local key = tostring(overrideTarget.recipeID) .. ":" .. tostring(overrideTarget.qualityID)
                     if not savedResults[key] then
-                        local saved, saveError = ns.Compat.CraftSim:SaveResultOverride({
-                            recipeID = overrideTarget.recipeID,
-                            itemID = overrideTarget.itemID or missingResult.itemID,
-                            qualityID = overrideTarget.qualityID,
-                            price = 1,
-                        })
-                        if not saved then
-                            self:SetStatus(saveError)
-                            return
+                        local itemID = overrideTarget.itemID or missingResult.itemID
+                        local cost, costTimestamp, crafterUID, costQualityID = ns.Compat.CraftSim:GetLastCraftingCost(
+                            itemID, overrideTarget.qualityID)
+                        local betterRankPrice = self:GetCheapestRealBetterRankPrice(
+                            pricesByRecipeAndQuality, overrideTarget.recipeID, overrideTarget.qualityID)
+                        local estimatedPrice, wasCapped = self:CalculateMissingResultPrice(cost, betterRankPrice)
+
+                        if estimatedPrice then
+                            local saved, saveError = ns.Compat.CraftSim:SaveResultOverride({
+                                recipeID = overrideTarget.recipeID,
+                                itemID = itemID,
+                                qualityID = overrideTarget.qualityID,
+                                price = estimatedPrice,
+                                source = ESTIMATED_RESULT_SOURCE,
+                                estimated = true,
+                                craftingCost = cost,
+                                costTimestamp = costTimestamp,
+                                crafterUID = crafterUID,
+                                costQualityID = costQualityID,
+                            })
+                            if not saved then
+                                self:SetStatus(saveError)
+                                return
+                            end
+                            savedResults[key] = true
+                            resultCount = resultCount + 1
+                            estimatedResultCount = estimatedResultCount + 1
+                            if wasCapped then
+                                cappedResultCount = cappedResultCount + 1
+                            end
+                            missingResult.estimatedPrice = estimatedPrice
+                            missingResult.craftingCost = cost
+                            missingResult.qualityID = tonumber(overrideTarget.qualityID)
+                            missingResult.costQualityID = costQualityID
+                            missingResult.estimateCapped = wasCapped
+                        else
+                            if ns.Compat.CraftSim:ClearEstimatedResultOverride(
+                                    overrideTarget.recipeID, overrideTarget.qualityID, ESTIMATED_RESULT_SOURCE) then
+                                clearedLegacyCount = clearedLegacyCount + 1
+                            end
+                            missingResult.estimateSkipped = true
+                            skippedEstimateCount = skippedEstimateCount + 1
                         end
-                        savedResults[key] = true
-                        suppressedResultCount = suppressedResultCount + 1
                     end
                 end
             end
@@ -4787,12 +4900,16 @@ function Scanner:PushOverrides()
 
     self.overridesPushed = true
     self:SetStatus(string.format(
-        "Pushed %d reagent and %d result overrides; capped %d lower-rank prices; suppressed %d missing results.",
-        globalCount, resultCount, cappedResultCount, suppressedResultCount))
+        "Pushed %d reagent and %d result overrides (%d estimated); capped %d lower-rank prices; skipped %d estimates without cost.",
+        globalCount, resultCount, estimatedResultCount, cappedResultCount, skippedEstimateCount))
     self:UpdateButtons()
+    if self.missingPanel and self.missingPanel:IsShown() then
+        self:UpdateMissingList()
+    end
     SystemPrint(string.format(
-        "Pushed %d reagent and %d result overrides; capped %d lower-rank prices; suppressed %d missing results.",
-        globalCount, resultCount, cappedResultCount, suppressedResultCount))
+        "Pushed %d reagent and %d result overrides (%d estimated); capped %d lower-rank prices; skipped %d estimates without cost%s.",
+        globalCount, resultCount, estimatedResultCount, cappedResultCount, skippedEstimateCount,
+        clearedLegacyCount > 0 and string.format("; cleared %d legacy 1c overrides", clearedLegacyCount) or ""))
 end
 
 function Scanner:AUCTION_HOUSE_SHOW()

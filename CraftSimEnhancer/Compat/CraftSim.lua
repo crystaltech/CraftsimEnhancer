@@ -10,6 +10,7 @@ Compat.internalDependencies = {
     "CraftSim.CRAFTQ:GetItemCountFromCraftQueueCache",
     "CraftSim.CRAFTQ:CreateAuctionatorShoppingList",
     "CraftSim.DB.PRICE_OVERRIDE",
+    "CraftSim.DB.LAST_CRAFTING_COST (optional missing-output estimates)",
     "CraftSim.CONST profession metadata and shopping-list name",
     "CraftSim.MODULES:UpdateUI",
     "CraftSimTSM:GetMinBuyoutByItemID",
@@ -102,6 +103,83 @@ function Compat:SaveResultOverride(data)
     end
     repository:SaveResultOverride(data)
     return true
+end
+
+---@param itemID number
+---@param qualityID number
+---@return number? cost
+---@return number? timestamp
+---@return string? crafterUID
+---@return number? costQualityID
+function Compat:GetLastCraftingCost(itemID, qualityID)
+    local repository = self.craftSim and self.craftSim.DB and self.craftSim.DB.LAST_CRAFTING_COST
+    if not repository then
+        return nil
+    end
+
+    local crafterUID, cost, timestamp
+    if type(repository.GetCheapestByItemIDAndQuality) == "function" then
+        local success
+        success, crafterUID, cost, timestamp = pcall(
+            repository.GetCheapestByItemIDAndQuality, repository, itemID, qualityID)
+        if success and tonumber(cost) and tonumber(cost) > 0 then
+            return tonumber(cost), tonumber(timestamp), crafterUID, tonumber(qualityID)
+        end
+    end
+
+    if type(repository.GetCheapestByItemID) == "function" then
+        local success
+        success, crafterUID, cost, timestamp = pcall(repository.GetCheapestByItemID, repository, itemID)
+        if success and tonumber(cost) and tonumber(cost) > 0 then
+            return tonumber(cost), tonumber(timestamp), crafterUID
+        end
+    end
+
+    -- CraftSim stores ranked gear only at the quality produced by its latest
+    -- recipe scan. Reuse the cheapest saved rank cost when the exact rank has
+    -- not been recorded; it is still CraftSim's expected per-item cost for the
+    -- same recipe output and avoids inventing material math here.
+    if type(repository.GetCheapestByItemIDAndQuality) == "function" then
+        local cheapestCost, cheapestTimestamp, cheapestCrafterUID, cheapestQualityID
+        for candidateQualityID = 1, 5 do
+            if candidateQualityID ~= tonumber(qualityID) then
+                local success, candidateCrafterUID, candidateCost, candidateTimestamp = pcall(
+                    repository.GetCheapestByItemIDAndQuality, repository, itemID, candidateQualityID)
+                candidateCost = success and tonumber(candidateCost) or nil
+                if candidateCost and candidateCost > 0 and
+                    (not cheapestCost or candidateCost < cheapestCost) then
+                    cheapestCost = candidateCost
+                    cheapestTimestamp = tonumber(candidateTimestamp)
+                    cheapestCrafterUID = candidateCrafterUID
+                    cheapestQualityID = candidateQualityID
+                end
+            end
+        end
+        if cheapestCost then
+            return cheapestCost, cheapestTimestamp, cheapestCrafterUID, cheapestQualityID
+        end
+    end
+
+    return nil
+end
+
+---@param recipeID number
+---@param qualityID number
+---@param source string
+---@return boolean cleared
+function Compat:ClearEstimatedResultOverride(recipeID, qualityID, source)
+    local repository = self.craftSim and self.craftSim.DB and self.craftSim.DB.PRICE_OVERRIDE
+    if not repository or type(repository.GetResultOverride) ~= "function" or
+        type(repository.DeleteResultOverride) ~= "function" then
+        return false
+    end
+
+    local current = repository:GetResultOverride(recipeID, qualityID)
+    if current and (current.source == source or tonumber(current.price) == 1) then
+        repository:DeleteResultOverride(recipeID, qualityID)
+        return true
+    end
+    return false
 end
 
 function Compat:UpdateCraftSimUI()

@@ -30,7 +30,11 @@ Enable `/console scriptErrors 1` and BugSack/BugGrabber if installed.
 - Run a scan with inputs and outputs. Confirm progress, throttling waits, results, missing rows, cancellation, and retry behavior.
 - Confirm reagent inputs use fill-quantity/outlier pricing and outputs use lowest buyout.
 - Confirm vendor-priced reagents appear without an AH query where metadata supplies a fixed price.
+- Enable CraftSim's **Update Last Crafting Cost DB** option and run Recipe Scan once to seed average costs.
 - Push overrides and verify CraftSim pricing refreshes.
+- Confirm missing outputs are labeled as estimates and use `floor(average cost / 0.95)`, not 1 copper.
+- Confirm a missing lower-rank estimate is capped to one copper below the cheapest real higher-rank result.
+- Confirm an output without a saved CraftSim cost is skipped and any legacy 1-copper Enhancer override is removed.
 - Close the Auction House during a scan and confirm clean cancellation.
 - Enter/leave combat before opening the Auction House and verify no blocked-action or taint error.
 

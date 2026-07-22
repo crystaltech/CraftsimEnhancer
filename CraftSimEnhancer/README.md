@@ -6,7 +6,7 @@ The addon was developed against CraftSim 26.1.10 and World of Warcraft interface
 
 ## Extracted features
 
-- Auction House scanner backed by the supplied generated Midnight recipe/item data, with profession filters, presets, missing-result reporting, fill/outlier pricing, lowest-output pricing, vendor fixed prices, TSM fallback, and CraftSim price-override export.
+- Auction House scanner backed by the supplied generated Midnight recipe/item data, with profession filters, presets, missing-result reporting, fill/outlier pricing, lowest-output pricing, vendor fixed prices, TSM fallback, and CraftSim price-override export. Outputs with no auctions use CraftSim's saved average cost for a 5%-AH-cut break-even estimate, with lower ranks capped below real higher-rank listings; outputs without a saved cost are skipped.
 - `Buy Reagents` merchant button for outstanding vendor-sold CraftSim queue reagents, including inventory subtraction, stock/gold checks, and optional Auctionator shopping-list deduction.
 - A deduplicated notice when a CraftSim Auctionator shopping list contains vendor-sold reagents.
 - Independent compatibility checks, debug/status reporting, module enable flags, and one-time legacy settings migration.
@@ -28,6 +28,8 @@ CraftSim is a required dependency. If CraftSim is disabled, WoW will not load Cr
 All Enhancer settings are stored in `CraftSimEnhancerDB`. The database has schema and migration versions, global settings, and a reserved profile root. It stores only Enhancer debug/module settings and scanner configuration; transient scan results are not saved.
 
 On first load, the Enhancer checks `CraftSimDB.auctionHouseScanDB.data`. If present, it copies fill quantity, per-crafter profession choices, target exclusions, and the configuration profession into new tables in `CraftSimEnhancerDB`. The old CraftSim value is not changed or deleted, and the migration does not repeat. CraftSim price overrides remain in CraftSim's normal `priceOverrideDB` because they are an upstream CraftSim feature.
+
+Missing-output estimates read CraftSim's Last Crafting Cost database. Enable **Update Last Crafting Cost DB** in CraftSim's Recipe Scan or Craft Lists and run it once to seed those costs. The scanner records these overrides as `Estimated — no auctions`; real AH results always replace estimates on a later push.
 
 `/cse reset confirm` resets only Enhancer settings. It deliberately does not re-import the retained legacy settings and does not reset CraftSim.
 
