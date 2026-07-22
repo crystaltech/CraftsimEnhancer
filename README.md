@@ -24,6 +24,28 @@ The addon is currently developed for World of Warcraft Retail interface 120007 a
 
 For missing-output estimates, enable CraftSim's **Update Last Crafting Cost DB** option in Recipe Scan or Craft Lists and run it once. If CraftSim has no saved cost for an output, CraftSim Enhancer skips that override instead of inventing a price.
 
+## Recommended TSM price strings
+
+When TradeSkillMaster is CraftSim's selected price source, open **CraftSim Options → TSM** and consider replacing CraftSim's default `first(DBRecent, DBMinBuyout)` expressions with these conservative fallbacks:
+
+**Crafting Reagents Price Expression**
+
+```text
+max(first(dbminbuyout, dbrecent, dbmarket, dbregionmarketavg), 80% first(dbrecent, dbmarket, dbregionmarketavg))
+```
+
+This starts with the latest minimum buyout and prevents a very small or abnormal listing from reducing material costs below 80% of a recent or longer-term market value.
+
+**Crafted Items Price Expression**
+
+```text
+min(first(dbminbuyout, dbrecent, dbmarket, dbregionmarketavg), 120% first(dbrecent, dbmarket, dbregionmarketavg))
+```
+
+This follows the lowest available listing but caps an unusually high or thin listing at 120% of a recent or longer-term market value, reducing false profit spikes.
+
+CraftSim Enhancer's scanned overrides take priority over these expressions. TSM therefore acts as a fallback for unscanned items, failed queries, and items outside the generated dataset. CraftSim also handles `VendorBuy` before evaluating either expression. `DBMinBuyout` is TSM's most recently processed minimum rather than a guaranteed real-time value, so run the Enhancer scan when current AH pricing matters. See TSM's documentation for [price-source definitions](https://support.tradeskillmaster.com/custom-strings/which-price-sources-can-i-use-and-what-do-they-mean) and [`first`, `min`, and `max` behavior](https://support.tradeskillmaster.com/en_US/custom-strings/which-functions-can-i-use-and-what-do-they-mean).
+
 ## Installation
 
 1. Download or clone this repository.
