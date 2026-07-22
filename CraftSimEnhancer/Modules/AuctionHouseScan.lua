@@ -726,6 +726,118 @@ function Scanner:ItemLinkMatchesBonusIDs(itemLink, requiredBonusIDs)
     return false
 end
 
+---@param itemLink string?
+---@param rankBonusIDs table<number, number[]>?
+---@return number? qualityID
+function Scanner:GetQualityIDFromItemLink(itemLink, rankBonusIDs)
+    if type(itemLink) ~= "string" or type(rankBonusIDs) ~= "table" then
+        return nil
+    end
+    for qualityID, requiredBonusIDs in pairs(rankBonusIDs) do
+        if self:ItemLinkMatchesBonusIDs(itemLink, requiredBonusIDs) == true then
+            return tonumber(qualityID)
+        end
+    end
+    return nil
+end
+
+---@param target table
+---@param rawRows table[]
+---@return table<number, number>? itemLevelsByQuality
+function Scanner:InferRankItemLevels(target, rawRows)
+    local deltas = target and target.rankItemLevelDeltas
+    if type(deltas) ~= "table" or type(rawRows) ~= "table" then
+        return nil
+    end
+
+    local levels = {}
+    local levelSet = {}
+    local directQualityLevels = {}
+    local candidateBases = {}
+    for _, row in ipairs(rawRows) do
+        local itemLevel = tonumber(row.itemKey and row.itemKey.itemLevel)
+        if itemLevel and itemLevel > 0 then
+            if not levelSet[itemLevel] then
+                levelSet[itemLevel] = true
+                table.insert(levels, itemLevel)
+            end
+
+            local linkedQualityID = self:GetQualityIDFromItemLink(row.itemLink, target.rankBonusIDsByQuality)
+            local linkedDelta = linkedQualityID and tonumber(deltas[linkedQualityID])
+            if linkedQualityID and linkedDelta then
+                directQualityLevels[linkedQualityID] = itemLevel
+                candidateBases[itemLevel - linkedDelta] = true
+            end
+
+            for _, rankDeltaValue in pairs(deltas) do
+                local rankDelta = tonumber(rankDeltaValue)
+                if rankDelta then
+                    candidateBases[itemLevel - rankDelta] = true
+                end
+            end
+        end
+    end
+
+    if #levels == 0 then
+        return nil
+    end
+
+    local bestBase
+    local bestBonusMatches = -1
+    local bestLevelMatches = -1
+    local bestIsTied = false
+    for candidateBase in pairs(candidateBases) do
+        local bonusMatches = 0
+        for qualityID, itemLevel in pairs(directQualityLevels) do
+            local rankDelta = tonumber(deltas[qualityID])
+            if rankDelta and candidateBase + rankDelta == itemLevel then
+                bonusMatches = bonusMatches + 1
+            end
+        end
+
+        local levelMatches = 0
+        for _, rankDeltaValue in pairs(deltas) do
+            local rankDelta = tonumber(rankDeltaValue)
+            if rankDelta and levelSet[candidateBase + rankDelta] then
+                levelMatches = levelMatches + 1
+            end
+        end
+
+        if bonusMatches > bestBonusMatches or
+            (bonusMatches == bestBonusMatches and levelMatches > bestLevelMatches) then
+            bestBase = candidateBase
+            bestBonusMatches = bonusMatches
+            bestLevelMatches = levelMatches
+            bestIsTied = false
+        elseif bonusMatches == bestBonusMatches and levelMatches == bestLevelMatches and candidateBase ~= bestBase then
+            bestIsTied = true
+        end
+    end
+
+    -- A bonus-ID match identifies a rank directly. Without links, require at
+    -- least two item levels to agree on one delta pattern; a lone item level
+    -- cannot safely identify which quality it represents.
+    if not bestBase or (bestBonusMatches <= 0 and (bestLevelMatches < 2 or bestIsTied)) then
+        if next(directQualityLevels) then
+            return directQualityLevels
+        end
+        return nil
+    end
+
+    local itemLevelsByQuality = {}
+    for qualityIDValue, rankDeltaValue in pairs(deltas) do
+        local qualityID = tonumber(qualityIDValue)
+        local rankDelta = tonumber(rankDeltaValue)
+        if qualityID and rankDelta then
+            itemLevelsByQuality[qualityID] = bestBase + rankDelta
+        end
+    end
+    for qualityID, itemLevel in pairs(directQualityLevels) do
+        itemLevelsByQuality[qualityID] = itemLevel
+    end
+    return itemLevelsByQuality
+end
+
 ---@param target table?
 ---@return ItemKey?
 function Scanner:GetTargetQueryItemKey(target)
@@ -2051,6 +2163,8 @@ function Scanner:GetMissingReasonShort(result)
     local lowerError = string.lower(errorText)
     if string.find(lowerError, "timed out", 1, true) then
         return "Timeout"
+    elseif string.find(lowerError, "rank could not be identified", 1, true) then
+        return "Rank unknown"
     elseif string.find(lowerError, "no posted", 1, true) then
         return result and result.suppressOnPush and "1c on push" or "No auctions"
     elseif string.find(lowerError, "throttled", 1, true) then
@@ -3236,26 +3350,16 @@ function Scanner:GetOutputItemLevel(output, qualityID)
         return 0
     end
 
-    if qualityID and output.rankItemLevelDeltas and output.itemIDs and output.itemIDs[1] then
-        local liveBaseItemLevel
-        if C_Item and C_Item.GetDetailedItemLevelInfo then
-            local ok, itemLevel = pcall(C_Item.GetDetailedItemLevelInfo, output.itemIDs[1])
-            if ok then
-                liveBaseItemLevel = tonumber(itemLevel)
-            end
-        end
-        if not liveBaseItemLevel and C_Item and C_Item.GetItemInfo then
-            local _, _, _, itemLevel = C_Item.GetItemInfo(output.itemIDs[1])
-            liveBaseItemLevel = tonumber(itemLevel)
-        end
-        local rankDelta = tonumber(output.rankItemLevelDeltas[qualityID])
-        if liveBaseItemLevel and liveBaseItemLevel > 0 and rankDelta then
-            return liveBaseItemLevel + rankDelta
-        end
-    end
-
     if qualityID and output.rankItemLevels then
         return tonumber(output.rankItemLevels[qualityID]) or tonumber(output.baseItemLevel) or 0
+    end
+
+    if qualityID and output.rankItemLevelDeltas then
+        local baseItemLevel = tonumber(output.baseItemLevel)
+        local rankDelta = tonumber(output.rankItemLevelDeltas[qualityID])
+        if baseItemLevel and rankDelta then
+            return baseItemLevel + rankDelta
+        end
     end
 
     return tonumber(output.baseItemLevel) or 0
@@ -3300,6 +3404,9 @@ function Scanner:AddOutputTargets(recipe, output, targetsByKey, targets)
             }, "output", recipe.profession, recipe.stratName, output)
             if target then
                 target.requiredBonusIDs = output.rankBonusIDs[qualityID]
+                target.outputQualityID = qualityID
+                target.rankItemLevelDeltas = output.rankItemLevelDeltas
+                target.rankBonusIDsByQuality = output.rankBonusIDs
                 added = true
             end
         end
@@ -3672,11 +3779,19 @@ function Scanner:GetItemRows(itemKey, target)
                 local buyout = tonumber(result.buyoutAmount)
                 local quantity = tonumber(result.quantity) or 1
                 if buyout and buyout > 0 and quantity > 0 then
+                    local itemLink = result.itemLink
+                    if not itemLink and result.auctionID and C_AuctionHouse.GetAuctionInfoByID then
+                        local auctionOK, auctionInfo = pcall(C_AuctionHouse.GetAuctionInfoByID, result.auctionID)
+                        if auctionOK and auctionInfo then
+                            itemLink = auctionInfo.itemLink
+                        end
+                    end
                     table.insert(rawRows, {
                         unitPrice = buyout,
                         quantity = quantity,
                         itemKey = result.itemKey or itemKey,
-                        itemLink = result.itemLink,
+                        itemLink = itemLink,
+                        auctionID = result.auctionID,
                     })
                 end
             end
@@ -3686,16 +3801,22 @@ function Scanner:GetItemRows(itemKey, target)
         end
     end
 
+    local rankItemLevels
+    if target and target.requiredBonusIDs then
+        rankItemLevels = self:InferRankItemLevels(target, rawRows)
+        target.itemLevel = rankItemLevels and rankItemLevels[target.outputQualityID] or 0
+        target.rankClassificationResolved = target.itemLevel > 0
+    end
+
     for _, result in ipairs(rawRows) do
         local resultItemKey = result.itemKey or itemKey
         local matchesTarget = not target or tonumber(resultItemKey.itemID) == tonumber(target.itemID)
         if matchesTarget and target and target.requiredBonusIDs then
             local bonusMatch = self:ItemLinkMatchesBonusIDs(result.itemLink, target.requiredBonusIDs)
-            if bonusMatch ~= nil then
-                matchesTarget = bonusMatch
-            elseif target.itemLevel and target.itemLevel > 0 then
-                matchesTarget = tonumber(resultItemKey.itemLevel) == tonumber(target.itemLevel)
-            end
+            local inferredItemLevel = rankItemLevels and rankItemLevels[target.outputQualityID]
+            local itemLevelMatch = inferredItemLevel and inferredItemLevel > 0 and
+                tonumber(resultItemKey.itemLevel) == tonumber(inferredItemLevel)
+            matchesTarget = bonusMatch == true or itemLevelMatch == true
         elseif matchesTarget and target and target.itemLevel and target.itemLevel > 0 then
             matchesTarget = tonumber(resultItemKey.itemLevel) == tonumber(target.itemLevel)
         end
@@ -3899,7 +4020,9 @@ function Scanner:PollPendingResults()
 
     for _, resultType in ipairs(self:GetResultTypesToTry(target)) do
         local rows = self:GetRowsForResultType(resultType)
-        if #rows > 0 then
+        local hasUnfilteredRankRows = resultType == "item" and target.requiredBonusIDs and
+            target.currentRawItemRows and #target.currentRawItemRows > 0
+        if #rows > 0 or hasUnfilteredRankRows then
             self:ProcessPendingResults(resultType)
             return
         elseif self:HasFullResults(resultType) then
@@ -4116,7 +4239,10 @@ function Scanner:FinishPendingTarget(rows, resultType)
         price, quantityUsed, listedQuantity, trimmedUnits = self:CalculateLowestBuyoutPrice(rows)
     end
     local source = "AH"
-    local allowTSMFallback = target.pricingMode ~= "output" or not target.itemLevel or target.itemLevel <= 0
+    -- A shared item ID cannot use an item-level-zero TSM price as a quality
+    -- fallback. It would assign one generic item price to an arbitrary rank.
+    local allowTSMFallback = target.pricingMode ~= "output" or
+        (target.requiredBonusIDs == nil and (not target.itemLevel or target.itemLevel <= 0))
     if not price and allowTSMFallback then
         price = self:GetTSMFallbackPrice(target)
         if price then
@@ -4145,7 +4271,12 @@ function Scanner:FinishPendingTarget(rows, resultType)
                 tostring(target.itemID) .. ")")
         end
     else
-        target.error = target.error or "No posted auctions found."
+        if target.requiredBonusIDs and target.currentRawItemRows and #target.currentRawItemRows > 0 and
+            not target.rankClassificationResolved then
+            target.error = target.error or "Posted auctions found, but rank could not be identified."
+        else
+            target.error = target.error or "No posted auctions found."
+        end
         table.insert(self.missingResults, {
             itemID = target.itemID,
             itemLevel = target.itemLevel,
