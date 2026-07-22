@@ -688,6 +688,63 @@ function Scanner:MakeItemKey(itemID, itemLevel)
     }
 end
 
+---@param itemKey ItemKey?
+---@return ItemKey?
+function Scanner:CopyItemKey(itemKey)
+    if not itemKey then
+        return nil
+    end
+    return {
+        itemID = tonumber(itemKey.itemID) or 0,
+        itemLevel = tonumber(itemKey.itemLevel) or 0,
+        itemSuffix = tonumber(itemKey.itemSuffix) or 0,
+        battlePetSpeciesID = tonumber(itemKey.battlePetSpeciesID) or 0,
+    }
+end
+
+---@param target table?
+---@return boolean
+function Scanner:ShouldUseBroadItemSearch(target)
+    if not target or target.resultType ~= "item" then
+        return false
+    end
+
+    -- Blizzard's sell-search path is the supported way to compare equipment
+    -- by item ID. A normal level-zero search is normalized to one concrete
+    -- item-level bucket and can therefore miss the other crafted ranks.
+    if target.requiredBonusIDs then
+        return true
+    end
+
+    if C_AuctionHouse and C_AuctionHouse.GetItemKeyInfo then
+        local ok, itemKeyInfo = pcall(C_AuctionHouse.GetItemKeyInfo,
+            self:MakeItemKey(target.itemID, 0), false)
+        return ok and itemKeyInfo and itemKeyInfo.isEquipment == true
+    end
+    return false
+end
+
+---@param target table?
+---@return ItemKey?
+function Scanner:GetTargetItemResultKey(target)
+    if not target then
+        return nil
+    end
+    if target.usesBroadItemSearch then
+        return target.itemSearchKey or self:GetTargetQueryItemKey(target)
+    end
+    return target.resultItemKey or target.itemSearchKey or self:GetTargetQueryItemKey(target)
+end
+
+---@param target table
+---@param itemKey ItemKey
+function Scanner:CaptureItemResultKey(target, itemKey)
+    if not target or not itemKey or target.usesBroadItemSearch then
+        return
+    end
+    target.resultItemKey = self:CopyItemKey(itemKey)
+end
+
 ---@param itemLink string?
 ---@param requiredBonusIDs number[]?
 ---@return boolean? matches nil when the link cannot be inspected
@@ -1666,6 +1723,10 @@ function Scanner:GetTargetDiagnosticSummary(target)
         "mode=" .. tostring(target.pricingMode or "unknown"),
         "q=" .. tostring(target.outputQualityID or "-"),
         "attempts=" .. tostring(target.queryAttempts or 0),
+        "search=" .. tostring(target.usesBroadItemSearch and "by-item" or
+            (target.itemSearchKey and target.itemSearchKey.itemLevel or "-")),
+        "readLevel=" .. tostring(self:GetTargetItemResultKey(target) and
+            self:GetTargetItemResultKey(target).itemLevel or "-"),
         "itemAPI=" .. tostring(target.diagnosticItemAPIResults or "-"),
         "itemRows=" .. tostring(target.diagnosticRawItemRows or "-"),
         "matched=" .. tostring(target.diagnosticMatchedRows or "-"),
@@ -3313,6 +3374,7 @@ function Scanner:AddScanTarget(targetsByKey, targets, itemID, itemLevel, label, 
             key = key,
             itemID = itemID,
             itemLevel = itemLevel,
+            queryItemLevel = queryItemLevel,
             pricingMode = pricingMode,
             itemKey = self:MakeItemKey(itemID, queryItemLevel),
             label = label or ("Item " .. tostring(itemID)),
@@ -3751,7 +3813,11 @@ function Scanner:TrySendNextQuery()
     target.genericResponseReceived = false
     target.genericResponseTime = nil
     target.emptyResultRetrySent = false
-    target.activeItemKey = target.itemKey
+    target.usesBroadItemSearch = self:ShouldUseBroadItemSearch(target)
+    target.activeItemKey = self:MakeItemKey(target.itemID,
+        target.usesBroadItemSearch and 0 or target.queryItemLevel)
+    target.itemSearchKey = self:CopyItemKey(target.activeItemKey)
+    target.resultItemKey = nil
     target.queryAttempts = 0
     target.diagnosticEvents = {}
 
@@ -3771,9 +3837,15 @@ function Scanner:TrySendNextQuery()
         return
     end
 
-    local ok, err = pcall(C_AuctionHouse.SendSearchQuery, queryItemKey, self:GetSearchSorts(), false)
+    local ok, err
+    if target.usesBroadItemSearch then
+        ok, err = pcall(C_AuctionHouse.SendSellSearchQuery, queryItemKey, self:GetSearchSorts(), false)
+    else
+        ok, err = pcall(C_AuctionHouse.SendSearchQuery, queryItemKey, self:GetSearchSorts(), false)
+    end
     target.queryAttempts = target.queryAttempts + 1
-    self:RecordQueryDiagnostic(target, "SEND", "level=" .. tostring(queryItemKey and queryItemKey.itemLevel or 0))
+    self:RecordQueryDiagnostic(target, target.usesBroadItemSearch and "SEND_BY_ITEM" or "SEND",
+        "level=" .. tostring(target.itemSearchKey and target.itemSearchKey.itemLevel or 0))
     self.nextQueryTime = GetTime() + MIN_QUERY_INTERVAL
     if not ok then
         target.error = tostring(err)
@@ -3799,8 +3871,8 @@ function Scanner:ItemKeyMatchesTarget(itemKey, target)
         return false
     end
     if target.itemLevel and target.itemLevel > 0 and itemKey.itemLevel and itemKey.itemLevel > 0 then
-        local activeItemKey = self:GetTargetQueryItemKey(target)
-        if activeItemKey and tonumber(activeItemKey.itemLevel) == 0 then
+        local searchItemKey = target.itemSearchKey or self:GetTargetQueryItemKey(target)
+        if target.usesBroadItemSearch or (searchItemKey and tonumber(searchItemKey.itemLevel) == 0) then
             return true
         end
         return tonumber(itemKey.itemLevel) == tonumber(target.itemLevel)
@@ -3956,7 +4028,8 @@ function Scanner:HasFullResults(resultType)
     if resultType == "commodity" and C_AuctionHouse.HasFullCommoditySearchResults then
         ok, hasFullResults = pcall(C_AuctionHouse.HasFullCommoditySearchResults, target.itemID)
     elseif resultType == "item" and C_AuctionHouse.HasFullItemSearchResults then
-        ok, hasFullResults = pcall(C_AuctionHouse.HasFullItemSearchResults, self:GetTargetQueryItemKey(target))
+        ok, hasFullResults = pcall(C_AuctionHouse.HasFullItemSearchResults,
+            self:GetTargetItemResultKey(target))
     end
     if ok then
         if resultType == "item" then
@@ -3980,7 +4053,7 @@ function Scanner:GetRowsForResultType(resultType)
     if resultType == "commodity" then
         return self:GetCommodityRows(target.itemID)
     end
-    return self:GetItemRows(self:GetTargetQueryItemKey(target), target)
+    return self:GetItemRows(self:GetTargetItemResultKey(target), target)
 end
 
 ---@param target table
@@ -4013,6 +4086,9 @@ function Scanner:TrySendSellSearchFallback(target, force)
 
     target.sellSearchFallbackSent = true
     target.activeItemKey = self:MakeItemKey(target.itemID, 0)
+    target.itemSearchKey = self:CopyItemKey(target.activeItemKey)
+    target.resultItemKey = nil
+    target.usesBroadItemSearch = false
     target.moreRequests = 0
     target.queryStartTime = GetTime()
     target.resultsReceived = false
@@ -4056,6 +4132,9 @@ function Scanner:TrySendItemLevelFallback(target, force)
 
     target.itemLevelFallbackSent = true
     target.activeItemKey = self:MakeItemKey(target.itemID, 0)
+    target.itemSearchKey = self:CopyItemKey(target.activeItemKey)
+    target.resultItemKey = nil
+    target.usesBroadItemSearch = false
     target.moreRequests = 0
     target.queryStartTime = GetTime()
     target.resultsReceived = false
@@ -4149,7 +4228,7 @@ function Scanner:PollPendingResults()
         return
     end
 
-    for _, resultType in ipairs(self:GetResultTypesToTry(target)) do
+    for resultIndex, resultType in ipairs(self:GetResultTypesToTry(target)) do
         local rows = self:GetRowsForResultType(resultType)
         local hasUnfilteredRankRows = resultType == "item" and target.requiredBonusIDs and
             target.currentRawItemRows and #target.currentRawItemRows > 0
@@ -4157,7 +4236,7 @@ function Scanner:PollPendingResults()
             self:RecordQueryDiagnostic(target, "CACHE_ROWS", resultType .. ":" .. tostring(#rows))
             self:ProcessPendingResults(resultType)
             return
-        elseif self:HasFullResults(resultType) then
+        elseif resultIndex == 1 and self:HasFullResults(resultType) then
             if self:TryFallbacksBeforeMissing(target, false) then
                 return
             end
@@ -4198,7 +4277,12 @@ end
 ---@return boolean sent
 function Scanner:RetryEmptySearch(target)
     if not target or target.emptyResultRetrySent or not C_AuctionHouse or
-        not C_AuctionHouse.SendSearchQuery or not self:IsAuctionThrottleReady() then
+        not self:IsAuctionThrottleReady() then
+        return false
+    end
+    local sendFunction = target.usesBroadItemSearch and C_AuctionHouse.SendSellSearchQuery or
+        C_AuctionHouse.SendSearchQuery
+    if not sendFunction then
         return false
     end
 
@@ -4209,11 +4293,16 @@ function Scanner:RetryEmptySearch(target)
     target.moreRequests = 0
     target.queryStartTime = GetTime()
     target.currentRawItemRows = nil
+    target.resultItemKey = nil
+    target.activeItemKey = self:MakeItemKey(target.itemID,
+        target.usesBroadItemSearch and 0 or target.queryItemLevel)
+    target.itemSearchKey = self:CopyItemKey(target.activeItemKey)
 
-    local ok, err = pcall(C_AuctionHouse.SendSearchQuery, self:GetTargetQueryItemKey(target),
+    local ok, err = pcall(sendFunction, self:GetTargetQueryItemKey(target),
         self:GetSearchSorts(), false)
     target.queryAttempts = (target.queryAttempts or 0) + 1
-    self:RecordQueryDiagnostic(target, "SEND_EMPTY_RETRY")
+    self:RecordQueryDiagnostic(target,
+        target.usesBroadItemSearch and "SEND_EMPTY_RETRY_BY_ITEM" or "SEND_EMPTY_RETRY")
     self.nextQueryTime = GetTime() + MIN_QUERY_INTERVAL
     if not ok then
         target.error = "Empty-result retry failed: " .. tostring(err)
@@ -4259,6 +4348,9 @@ function Scanner:RequestMoreResultsIfNeeded(resultType, rows)
     if not target then
         return false
     end
+    if target.cachedItemRows then
+        return false
+    end
     local needsSharedOutputSnapshot = target.pricingMode == "output" and target.requiredBonusIDs ~= nil
     if not self:TargetUsesFillQuantity(target) and not needsSharedOutputSnapshot and #rows > 0 then
         return false
@@ -4279,7 +4371,8 @@ function Scanner:RequestMoreResultsIfNeeded(resultType, rows)
     if resultType == "commodity" and C_AuctionHouse.RequestMoreCommoditySearchResults then
         ok, hasFullResults = pcall(C_AuctionHouse.RequestMoreCommoditySearchResults, target.itemID)
     elseif resultType == "item" and C_AuctionHouse.RequestMoreItemSearchResults then
-        ok, hasFullResults = pcall(C_AuctionHouse.RequestMoreItemSearchResults, self:GetTargetQueryItemKey(target))
+        ok, hasFullResults = pcall(C_AuctionHouse.RequestMoreItemSearchResults,
+            self:GetTargetItemResultKey(target))
     end
 
     if ok and hasFullResults == false then
@@ -4422,6 +4515,15 @@ function Scanner:ProcessPendingResults(resultType)
         if self:TryFallbacksBeforeMissing(target, false) then
             return
         end
+
+        local hasUnfilteredRankRows = resultType == "item" and target.requiredBonusIDs and
+            target.currentRawItemRows and #target.currentRawItemRows > 0
+        local alreadyRetried = target.emptyResultRetrySent or target.sellSearchFallbackSent or
+            target.itemLevelFallbackSent
+        if not hasUnfilteredRankRows and not alreadyRetried and self:HasFullResults(resultType) and
+            self:RetryEmptySearch(target) then
+            return
+        end
     end
 
     if self:RequestMoreResultsIfNeeded(resultType, rows) then
@@ -4442,7 +4544,8 @@ function Scanner:FinishPendingTarget(rows, resultType)
     self.pendingTimeoutToken = self.pendingTimeoutToken + 1
 
     local queryItemKey = self:GetTargetQueryItemKey(target)
-    if target.pricingMode == "output" and queryItemKey and tonumber(queryItemKey.itemLevel) == 0 and
+    local itemSearchKey = target.itemSearchKey or queryItemKey
+    if target.pricingMode == "output" and itemSearchKey and tonumber(itemSearchKey.itemLevel) == 0 and
         target.currentRawItemRows then
         self.outputItemRowsCache[target.itemID] = target.currentRawItemRows
     end
@@ -4742,6 +4845,7 @@ function Scanner:AUCTION_HOUSE_NEW_RESULTS_RECEIVED(itemKey)
         return
     end
     if target then
+        self:CaptureItemResultKey(target, itemKey)
         target.resultsReceived = true
         self:SchedulePendingPoll(0.05)
     end
@@ -4786,6 +4890,7 @@ function Scanner:ITEM_SEARCH_RESULTS_UPDATED(itemKey)
     if not self:ItemKeyMatchesTarget(itemKey, target) then
         return
     end
+    self:CaptureItemResultKey(target, itemKey)
     target.resultsReceived = true
     self:ScheduleResultProcessing(target, "item")
 end
