@@ -44,6 +44,28 @@ min(first(dbminbuyout, dbrecent, dbmarket, dbregionmarketavg), 120% first(dbrece
 
 This follows the lowest available listing but caps an unusually high or thin listing at 120% of a recent or longer-term market value, reducing false profit spikes.
 
+**Crafted Items Restock Qty Expression — optional**
+
+```text
+ifgte(dbregionsoldperday, 0.1, min(20, max(1, roundup(3 * dbregionsoldperday))), 0)
+```
+
+This targets roughly three days of regional sales, skips items averaging fewer than 0.1 sales per day, and limits the target to 20. It returns a target inventory quantity, not a price or the number still needing to be crafted. CraftSim subtracts owned inventory separately, so do not subtract `numinventory` in this expression.
+
+For slower gear, a one-week target capped at 5 is more conservative:
+
+```text
+min(5, max(1, roundup(7 * dbregionsoldperday)))
+```
+
+For high-volume consumables, a two-day target between 5 and 100 may be more useful:
+
+```text
+min(100, max(5, roundup(2 * dbregionsoldperday)))
+```
+
+`DBRegionSoldPerDay` is TSM's estimated average quantity sold per Auction House per day across the region; it is not the player's personal sales rate. Enable CraftSim's TSM restock-expression option wherever the recipe scan or Craft List should use it. See TSM's [value-source definitions](https://support.tradeskillmaster.com/en_US/custom-strings/which-value-sources-can-i-use-and-what-do-they-mean).
+
 CraftSim Enhancer's scanned overrides take priority over these expressions. TSM therefore acts as a fallback for unscanned items, failed queries, and items outside the generated dataset. CraftSim also handles `VendorBuy` before evaluating either expression. `DBMinBuyout` is TSM's most recently processed minimum rather than a guaranteed real-time value, so run the Enhancer scan when current AH pricing matters. See TSM's documentation for [price-source definitions](https://support.tradeskillmaster.com/custom-strings/which-price-sources-can-i-use-and-what-do-they-mean) and [`first`, `min`, and `max` behavior](https://support.tradeskillmaster.com/en_US/custom-strings/which-functions-can-i-use-and-what-do-they-mean).
 
 ## Installation
