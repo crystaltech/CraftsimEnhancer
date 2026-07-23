@@ -3,7 +3,7 @@
 ## Category: Professions
 ## Notes: Adds custom enhancements and additional features to CraftSim.
 ## Author: Crystal_Tech
-## Version: 1.0.0
+## Version: 1.1.0
 ## RequiredDeps: CraftSim
 ## SavedVariables: CraftSimEnhancerDB
 
@@ -15,6 +15,7 @@ Compat/WoW.lua
 Compat/CraftSim.lua
 
 Data/GeneratedRecipes/ItemMetadata.lua
+Data/GeneratedRecipes/RecipeCategories.lua
 Data/GeneratedRecipes/Alchemy.lua
 Data/GeneratedRecipes/Blacksmithing.lua
 Data/GeneratedRecipes/Cooking.lua

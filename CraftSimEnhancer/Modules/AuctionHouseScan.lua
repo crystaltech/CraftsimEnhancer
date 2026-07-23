@@ -22,17 +22,25 @@ local MAX_MORE_RESULT_REQUESTS = 5
 local GENERIC_RESULT_GRACE_SECONDS = 1.0
 local AUCTION_HOUSE_CUT = 0.05
 local ESTIMATED_RESULT_SOURCE = "Estimated — no auctions"
+local AUCTION_HOUSE_TAB_ID = "CraftSimEnhancerAuctionHouseScan"
 
 Scanner.button = nil
 Scanner.panel = nil
 Scanner.configPanel = nil
 Scanner.missingPanel = nil
 Scanner.missingExportPanel = nil
+Scanner.tabLibrary = nil
+Scanner.usesTabLibrary = false
+Scanner.displayModeHooked = false
+Scanner.activeView = "config"
 Scanner.professionCheckboxes = {}
 Scanner.configRows = {}
 Scanner.configTargets = {}
 Scanner.presetRows = {}
 Scanner.configView = "presets"
+Scanner.expandedQuickSetGroups = {}
+Scanner.expandedProfessionGroups = {}
+Scanner.expandedCategoryGroups = {}
 Scanner.missingRows = {}
 Scanner.activeConfigPresets = {}
 Scanner.isScanning = false
@@ -1223,7 +1231,7 @@ end
 ---@return string
 function Scanner:GetProfessionDropdownText(profession)
     if profession == "ALL" then
-        return "Selected Professions"
+        return "Profession: All Selected"
     end
     local professionInfo = self:GetProfessionInfoByName(profession)
     if professionInfo then
@@ -1783,17 +1791,8 @@ function Scanner:UpdateMissingButton()
     local missing = self:GetMissingDisplayCount()
     local showMissing = self.scanComplete and not self.isScanning and missing > 0
 
-    if panel.scanButton then
-        panel.scanButton:ClearAllPoints()
-        if showMissing then
-            panel.scanButton:SetPoint("TOPLEFT", panel.scanLabel, "BOTTOMLEFT", 8, -6)
-        else
-            panel.scanButton:SetPoint("TOP", panel.scanLabel, "BOTTOM", 0, -6)
-        end
-    end
-
     panel.missingButton:SetText("Missing (" .. tostring(missing) .. ")")
-    panel.missingButton:SetShown(showMissing)
+    panel.missingButton:Show()
     SetButtonEnabled(panel.missingButton, showMissing)
 end
 
@@ -1814,23 +1813,43 @@ function Scanner:HasOverridesToPush()
     return false
 end
 
+---@return number selectedTargetCount
+function Scanner:GetSelectedScanTargetCount()
+    if not self:HasSelectedProfession() then
+        return 0
+    end
+
+    -- Fixed vendor prices do not require Auction House queries, so count only
+    -- the currently enabled targets that can actually be scanned.
+    local targets = self:BuildScanTargets({ skipFixedPrices = true }) or {}
+    return #targets
+end
+
 function Scanner:UpdateButtons()
     local panel = self.panel
     if not panel then
         return
     end
 
+    local canPushOverrides = self.scanComplete and not self.overridesPushed and self:HasOverridesToPush()
+    local selectedTargetCount = 0
+    if not self.isScanning and not canPushOverrides then
+        selectedTargetCount = self:GetSelectedScanTargetCount()
+    end
+
     if panel.scanButton then
         if self.isScanning then
             panel.scanButton:SetText("Stop Scan")
-        elseif self.scanComplete and not self.overridesPushed and self:HasOverridesToPush() then
+        elseif canPushOverrides then
             panel.scanButton:SetText("Push Overrides")
+        elseif selectedTargetCount == 0 then
+            panel.scanButton:SetText("Select Scan Targets")
         else
             panel.scanButton:SetText("Scan Now")
         end
     end
 
-    SetButtonEnabled(panel.scanButton, true)
+    SetButtonEnabled(panel.scanButton, self.isScanning or canPushOverrides or selectedTargetCount > 0)
     SetButtonEnabled(panel.configureButton, not self.isScanning and self:HasSelectedProfession())
     for _, checkbox in pairs(self.professionCheckboxes) do
         SetButtonEnabled(checkbox, not self.isScanning)
@@ -1845,32 +1864,108 @@ function Scanner:SaveFillQuantityInput(input)
     input:SetText(tostring(Config:GetFillQuantity()))
 end
 
+function Scanner:GetAuctionHouseTabLibrary()
+    if not LibStub then
+        return nil
+    end
+    local success, library = pcall(function()
+        return LibStub("LibAHTab-1-0", true)
+    end)
+    if success and library and type(library.CreateTab) == "function" and type(library.SetSelected) == "function" then
+        return library
+    end
+    return nil
+end
+
+---@param displayMode any
+---@return boolean
+function Scanner:IsBuiltInAuctionHouseDisplayMode(displayMode)
+    if displayMode == nil then
+        return false
+    end
+    return type(displayMode) ~= "table" or next(displayMode) ~= nil
+end
+
+function Scanner:HideAuctionHouseTab()
+    if self.panel then
+        self.panel:Hide()
+    end
+    if self.missingExportPanel then
+        self.missingExportPanel:Hide()
+    end
+    if self.button and PanelTemplates_DeselectTab then
+        PanelTemplates_DeselectTab(self.button)
+    end
+end
+
+function Scanner:SelectAuctionHouseTab()
+    self:CreatePanel()
+    self:CreateButton()
+    if not self.panel or not self.button or not AuctionHouseFrame then
+        return
+    end
+
+    if self.usesTabLibrary and self.tabLibrary then
+        self.tabLibrary:SetSelected(AUCTION_HOUSE_TAB_ID)
+    else
+        AuctionHouseFrame:SetDisplayMode({})
+        AuctionHouseFrame.displayMode = nil
+        for _, tab in ipairs(AuctionHouseFrame.Tabs or {}) do
+            if PanelTemplates_DeselectTab then
+                PanelTemplates_DeselectTab(tab)
+            end
+        end
+        if PanelTemplates_SelectTab then
+            PanelTemplates_SelectTab(self.button)
+        end
+        if AuctionHouseFrame.SetTitle then
+            AuctionHouseFrame:SetTitle("CraftSim Scanner")
+        end
+        self.panel:Show()
+    end
+
+    self:UpdateLauncherTabState()
+end
+
 function Scanner:CreateButton()
     if self.button or not AuctionHouseFrame then
         return
     end
 
-    local isTabButton, button = pcall(CreateFrame, "Button", "CraftSimEnhancerAuctionHouseScanButton", AuctionHouseFrame,
-        "PanelTabButtonTemplate")
-    if not isTabButton or not button then
-        isTabButton = false
-        button = CreateFrame("Button", "CraftSimEnhancerAuctionHouseScanButton", AuctionHouseFrame, "UIPanelButtonTemplate")
+    self:CreatePanel()
+    if not self.panel then
+        return
     end
 
-    button.craftSimIsLauncherTab = isTabButton
-    button:SetSize(isTabButton and 80 or 145, isTabButton and 32 or 24)
-    button:SetFrameStrata("DIALOG")
-    button:SetFrameLevel((AuctionHouseFrame:GetFrameLevel() or 1) + 30)
-    button:SetText(isTabButton and "CraftSim" or "CraftSim AH Scan")
-    if isTabButton and PanelTemplates_TabResize then
+    local library = self:GetAuctionHouseTabLibrary()
+    local button
+    if library then
+        if not library:DoesIDExist(AUCTION_HOUSE_TAB_ID) then
+            library:CreateTab(AUCTION_HOUSE_TAB_ID, self.panel, "CraftSim", "CraftSim Scanner")
+        end
+        button = library:GetButton(AUCTION_HOUSE_TAB_ID)
+        self.tabLibrary = library
+        self.usesTabLibrary = true
+    else
+        button = CreateFrame("Button", "CraftSimEnhancerAuctionHouseScanButton", AuctionHouseFrame,
+            "AuctionHouseFrameDisplayModeTabTemplate")
+        button:SetText("CraftSim")
+        button:SetScript("OnClick", function()
+            Scanner:SelectAuctionHouseTab()
+            if PlaySound and SOUNDKIT and SOUNDKIT.IG_CHARACTER_INFO_TAB then
+                PlaySound(SOUNDKIT.IG_CHARACTER_INFO_TAB)
+            end
+        end)
+    end
+
+    if not button then
+        return
+    end
+
+    button.craftSimIsLauncherTab = true
+    if PanelTemplates_TabResize then
         PanelTemplates_TabResize(button, 20, nil, 70)
     end
-    button:SetScript("OnClick", function()
-        Scanner:TogglePanel()
-        if PlaySound and SOUNDKIT and SOUNDKIT.IG_CHARACTER_INFO_TAB then
-            PlaySound(SOUNDKIT.IG_CHARACTER_INFO_TAB)
-        end
-    end)
     button:SetScript("OnEnter", function(selfButton)
         GameTooltip:SetOwner(selfButton, "ANCHOR_RIGHT")
         GameTooltip:AddLine("CraftSim AH Scan")
@@ -1882,6 +1977,17 @@ function Scanner:CreateButton()
 
     self.button = button
     self:AttachLauncherTabToAuctionHouseTabs()
+
+    if not self.displayModeHooked and hooksecurefunc then
+        hooksecurefunc(AuctionHouseFrame, "SetDisplayMode", function(_, displayMode)
+            if Scanner:IsBuiltInAuctionHouseDisplayMode(displayMode) then
+                Scanner:HideAuctionHouseTab()
+                Scanner:UpdateLauncherTabState()
+            end
+        end)
+        self.displayModeHooked = true
+    end
+
     self:UpdateLauncherTabState()
 end
 
@@ -1891,11 +1997,7 @@ function Scanner:AttachLauncherTabToAuctionHouseTabs()
         return
     end
 
-    if not button.craftSimIsLauncherTab or not AuctionHouseFrame.Tabs then
-        if button and AuctionHouseFrame then
-            button:ClearAllPoints()
-            button:SetPoint("TOPLEFT", AuctionHouseFrame, "BOTTOMLEFT", 70, -36)
-        end
+    if self.usesTabLibrary or not AuctionHouseFrame.Tabs then
         return
     end
 
@@ -1906,15 +2008,7 @@ function Scanner:AttachLauncherTabToAuctionHouseTabs()
         end
     end
 
-    local insertAfterIndex = #tabs
-    for index, tab in ipairs(tabs) do
-        if tab == AuctionHouseFrame.AuctionsTab then
-            insertAfterIndex = index
-            break
-        end
-    end
-
-    table.insert(tabs, insertAfterIndex + 1, button)
+    table.insert(tabs, button)
     for index, tab in ipairs(tabs) do
         if tab.SetID then
             tab:SetID(index)
@@ -1922,6 +2016,12 @@ function Scanner:AttachLauncherTabToAuctionHouseTabs()
     end
 
     button:ClearAllPoints()
+    local previousTab = tabs[#tabs - 1]
+    if previousTab then
+        button:SetPoint("LEFT", previousTab, "RIGHT", -15, 0)
+    else
+        button:SetPoint("BOTTOMLEFT", AuctionHouseFrame, "BOTTOMLEFT", 20, -28)
+    end
     if PanelTemplates_TabResize then
         PanelTemplates_TabResize(button, 20, nil, 70)
     end
@@ -1936,36 +2036,63 @@ function Scanner:UpdateLauncherTabState()
         return
     end
 
-    local selected = self.panel and self.panel:IsShown()
+    local selected = self.panel and self.panel:IsShown() or false
     if button.SetChecked then
         button:SetChecked(selected)
     end
 
-    if button.craftSimIsLauncherTab then
-        if selected then
-            if PanelTemplates_SelectTab then
-                PanelTemplates_SelectTab(button)
-            end
-        elseif PanelTemplates_DeselectTab then
-            PanelTemplates_DeselectTab(button)
+    if selected then
+        if PanelTemplates_SelectTab then
+            PanelTemplates_SelectTab(button)
         end
+    elseif PanelTemplates_DeselectTab then
+        PanelTemplates_DeselectTab(button)
+    end
 
-        if button.Enable then
-            button:Enable()
-        end
+    if button.Enable then
+        button:Enable()
     end
 end
 
+---@param view "config" | "missing"
+function Scanner:ShowPanelView(view)
+    self:CreateConfigPanel()
+    self:CreateMissingPanel()
+
+    if view == "missing" and #self.missingResults == 0 then
+        self:SetStatus("No missing scan items to show.")
+        view = "config"
+    end
+
+    self.activeView = view == "missing" and "missing" or "config"
+    if self.configPanel then
+        self.configPanel:SetShown(self.activeView == "config")
+    end
+    if self.missingPanel then
+        self.missingPanel:SetShown(self.activeView == "missing")
+    end
+
+    if self.activeView == "missing" then
+        self:UpdateMissingList()
+    else
+        self:UpdateConfigList()
+    end
+
+end
+
 ---@param parent Frame
+---@param professionInfo table
 ---@param y number
 ---@return CheckButton
 function Scanner:CreateProfessionCheckbox(parent, professionInfo, y)
     local checkbox = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
     checkbox:SetSize(24, 24)
-    checkbox:SetPoint("TOPLEFT", parent, "TOPLEFT", 58, y)
+    checkbox:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, y)
     checkbox:SetChecked(self:GetSelectedProfessions()[professionInfo.name] == true)
     checkbox.text = checkbox:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     checkbox.text:SetPoint("LEFT", checkbox, "RIGHT", 2, 0)
+    checkbox.text:SetWidth(150)
+    checkbox.text:SetJustifyH("LEFT")
     checkbox.text:SetText(self:GetProfessionLabel(professionInfo))
     checkbox:SetScript("OnClick", function(selfCheckbox)
         Config:SaveProfessionSelected(professionInfo.name, selfCheckbox:GetChecked())
@@ -1973,9 +2100,12 @@ function Scanner:CreateProfessionCheckbox(parent, professionInfo, y)
         Scanner.overridesPushed = false
         wipe(Scanner.priceResults)
         wipe(Scanner.missingResults)
-        if Scanner.configPanel and Scanner.configPanel:IsShown() then
+        if Scanner.activeView == "missing" then
+            Scanner:ShowPanelView("config")
+        elseif Scanner.configPanel and Scanner.configPanel:IsShown() then
             Scanner:UpdateConfigList()
         end
+        Scanner:UpdateMissingList()
         Scanner:UpdateButtons()
         Scanner:UpdateProgressText()
     end)
@@ -1987,94 +2117,74 @@ function Scanner:CreatePanel()
         return
     end
 
-    local panel = CreateFrame("Frame", "CraftSimEnhancerAuctionHouseScanPanel", AuctionHouseFrame, "BackdropTemplate")
-    panel:SetSize(310, 485)
-    panel:SetPoint("TOPLEFT", AuctionHouseFrame, "TOPRIGHT", 8, -32)
-    panel:SetFrameStrata("DIALOG")
-    panel:SetFrameLevel((AuctionHouseFrame:GetFrameLevel() or 1) + 40)
-    panel:SetMovable(true)
-    panel:SetClampedToScreen(true)
+    local panel = CreateFrame("Frame", "CraftSimEnhancerAuctionHouseScanPanel", AuctionHouseFrame)
+    panel:SetPoint("TOPLEFT", AuctionHouseFrame, "TOPLEFT", 4, -25)
+    panel:SetPoint("BOTTOMRIGHT", AuctionHouseFrame, "BOTTOMRIGHT", -4, 4)
+    panel:SetFrameLevel((AuctionHouseFrame:GetFrameLevel() or 1) + 10)
     panel:EnableMouse(true)
-    panel:RegisterForDrag("LeftButton")
-    panel:SetScript("OnDragStart", function(frame)
-        frame:StartMoving()
-    end)
-    panel:SetScript("OnDragStop", function(frame)
-        frame:StopMovingOrSizing()
-    end)
-    panel:SetBackdrop({
-        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
-        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+
+    panel.background = panel:CreateTexture(nil, "BACKGROUND")
+    panel.background:SetAllPoints(panel)
+    panel.background:SetColorTexture(0.035, 0.035, 0.035, 0.96)
+
+    panel.leftPane = CreateFrame("Frame", nil, panel, "BackdropTemplate")
+    panel.leftPane:SetPoint("TOPLEFT", panel, "TOPLEFT", 4, -4)
+    panel.leftPane:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 4, 4)
+    panel.leftPane:SetWidth(198)
+    panel.leftPane:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8X8",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
         tile = true,
-        tileSize = 32,
-        edgeSize = 24,
-        insets = { left = 6, right = 6, top = 6, bottom = 6 },
+        tileSize = 16,
+        edgeSize = 12,
+        insets = { left = 3, right = 3, top = 3, bottom = 3 },
     })
+    panel.leftPane:SetBackdropColor(0.025, 0.025, 0.025, 0.94)
+    panel.leftPane:SetBackdropBorderColor(0.35, 0.35, 0.35, 0.8)
 
-    panel.title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    panel.title:SetPoint("TOP", panel, "TOP", 0, -14)
-    panel.title:SetWidth(278)
+    panel.contentHost = CreateFrame("Frame", nil, panel, "BackdropTemplate")
+    panel.contentHost:SetPoint("TOPLEFT", panel.leftPane, "TOPRIGHT", 6, 0)
+    panel.contentHost:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -4, 4)
+    panel.contentHost:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8X8",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true,
+        tileSize = 16,
+        edgeSize = 12,
+        insets = { left = 3, right = 3, top = 3, bottom = 3 },
+    })
+    panel.contentHost:SetBackdropColor(0.025, 0.025, 0.025, 0.94)
+    panel.contentHost:SetBackdropBorderColor(0.35, 0.35, 0.35, 0.8)
+
+    panel.title = panel.leftPane:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    panel.title:SetPoint("TOP", panel.leftPane, "TOP", 0, -14)
+    panel.title:SetWidth(178)
     panel.title:SetJustifyH("CENTER")
-    panel.title:SetText("|cffffd100=-|r |cffffff00CraftSim Scanner|r |cffffd100-=|r")
+    panel.title:SetText("Professions")
 
-    panel.closeButton = CreateFrame("Button", nil, panel, "UIPanelCloseButton")
-    panel.closeButton:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -4, -4)
-    panel.closeButton:SetScript("OnClick", function()
-        panel:Hide()
-        if Scanner.configPanel then
-            Scanner.configPanel:Hide()
-        end
-        if Scanner.missingPanel then
-            Scanner.missingPanel:Hide()
-        end
-        if Scanner.missingExportPanel then
-            Scanner.missingExportPanel:Hide()
-        end
-        Scanner:UpdateLauncherTabState()
-    end)
-
-    panel.professionsLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    panel.professionsLabel:SetPoint("TOP", panel, "TOP", 0, -44)
-    panel.professionsLabel:SetWidth(278)
+    panel.professionsLabel = panel.leftPane:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    panel.professionsLabel:SetPoint("TOP", panel.title, "BOTTOM", 0, -4)
+    panel.professionsLabel:SetWidth(178)
     panel.professionsLabel:SetJustifyH("CENTER")
-    panel.professionsLabel:SetText("Step 1: Choose professions")
+    panel.professionsLabel:SetText("Choose what to include")
 
     self:EnsureProfessionSelectionForCurrentCrafter()
     wipe(self.professionCheckboxes)
-    local y = -66
+    local y = -56
     for _, professionInfo in ipairs(self.PROFESSIONS) do
-        local checkbox = self:CreateProfessionCheckbox(panel, professionInfo, y)
+        local checkbox = self:CreateProfessionCheckbox(panel.leftPane, professionInfo, y)
         self.professionCheckboxes[professionInfo.name] = checkbox
         y = y - 24
     end
 
-    panel.configureLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    panel.configureLabel:SetPoint("TOP", panel, "TOP", 0, y - 8)
-    panel.configureLabel:SetWidth(278)
-    panel.configureLabel:SetJustifyH("CENTER")
-    panel.configureLabel:SetText("Step 2: Configure what to scan")
-
-    panel.configureButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-    panel.configureButton:SetSize(150, 24)
-    panel.configureButton:SetPoint("TOP", panel.configureLabel, "BOTTOM", 0, -6)
-    panel.configureButton:SetText("Configure")
-    panel.configureButton:SetScript("OnClick", function()
-        local scanner = Scanner
-        if not scanner:HasSelectedProfession() then
-            scanner:SetStatus("Choose at least one profession first.")
-            return
-        end
-        scanner:ToggleConfigPanel()
-    end)
-
-    panel.scanLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    panel.scanLabel:SetPoint("TOP", panel.configureButton, "BOTTOM", 0, -12)
-    panel.scanLabel:SetWidth(278)
+    panel.scanLabel = panel.leftPane:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    panel.scanLabel:SetPoint("TOP", panel.leftPane, "TOP", 0, y - 10)
+    panel.scanLabel:SetWidth(178)
     panel.scanLabel:SetJustifyH("CENTER")
-    panel.scanLabel:SetText("Step 3: Scan and push prices")
+    panel.scanLabel:SetText("Auction House Scan")
 
-    panel.scanButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-    panel.scanButton:SetSize(150, 24)
+    panel.scanButton = CreateFrame("Button", nil, panel.leftPane, "UIPanelButtonTemplate")
+    panel.scanButton:SetSize(164, 24)
     panel.scanButton:SetPoint("TOP", panel.scanLabel, "BOTTOM", 0, -6)
     panel.scanButton:SetText("Scan Now")
     panel.scanButton:SetScript("OnClick", function()
@@ -2088,37 +2198,48 @@ function Scanner:CreatePanel()
         end
     end)
 
-    panel.missingButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-    panel.missingButton:SetSize(104, 24)
-    panel.missingButton:SetPoint("LEFT", panel.scanButton, "RIGHT", 8, 0)
-    panel.missingButton:SetText("Missing")
+    panel.missingButton = CreateFrame("Button", nil, panel.leftPane, "UIPanelButtonTemplate")
+    panel.missingButton:SetSize(164, 24)
+    panel.missingButton:SetPoint("TOP", panel.scanButton, "BOTTOM", 0, -6)
+    panel.missingButton:SetText("Missing (0)")
     panel.missingButton:SetScript("OnClick", function()
         Scanner:ToggleMissingPanel()
     end)
-    panel.missingButton:Hide()
 
-    panel.progressText = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    panel.progressText:SetPoint("TOPLEFT", panel.scanLabel, "BOTTOMLEFT", 0, -42)
-    panel.progressText:SetWidth(278)
+    panel.progressText = panel.leftPane:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    panel.progressText:SetPoint("TOPLEFT", panel.missingButton, "BOTTOMLEFT", 0, -12)
+    panel.progressText:SetWidth(164)
     panel.progressText:SetHeight(14)
     panel.progressText:SetJustifyH("LEFT")
 
-    panel.statusText = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    panel.statusText = panel.leftPane:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     panel.statusText:SetPoint("TOPLEFT", panel.progressText, "BOTTOMLEFT", 0, -8)
-    panel.statusText:SetWidth(278)
-    panel.statusText:SetHeight(48)
+    panel.statusText:SetWidth(164)
+    panel.statusText:SetHeight(108)
     panel.statusText:SetJustifyH("LEFT")
     panel.statusText:SetJustifyV("TOP")
     panel.statusText:SetText("")
 
+    panel:SetScript("OnShow", function()
+        Scanner:ShowPanelView(Scanner.activeView or "config")
+        Scanner:UpdateButtons()
+        Scanner:UpdateProgressText()
+        Scanner:UpdateLauncherTabState()
+    end)
+    panel:SetScript("OnHide", function()
+        Scanner:UpdateLauncherTabState()
+    end)
+
     panel:Hide()
     self.panel = panel
+    self:CreateConfigPanel()
+    self:CreateMissingPanel()
     self:UpdateButtons()
 end
 
 function Scanner:ShowButton()
-    self:CreateButton()
     self:CreatePanel()
+    self:CreateButton()
     self:AttachLauncherTabToAuctionHouseTabs()
     if self.button then
         self.button:Show()
@@ -2135,27 +2256,7 @@ function Scanner:ShowButton()
 end
 
 function Scanner:TogglePanel()
-    self:CreatePanel()
-    if not self.panel then
-        return
-    end
-    if self.panel:IsShown() then
-        self.panel:Hide()
-        if self.configPanel then
-            self.configPanel:Hide()
-        end
-        if self.missingPanel then
-            self.missingPanel:Hide()
-        end
-        if self.missingExportPanel then
-            self.missingExportPanel:Hide()
-        end
-    else
-        self.panel:Show()
-        self:UpdateButtons()
-        self:UpdateProgressText()
-    end
-    self:UpdateLauncherTabState()
+    self:SelectAuctionHouseTab()
 end
 
 function Scanner:ToggleMissingPanel()
@@ -2164,85 +2265,59 @@ function Scanner:ToggleMissingPanel()
         return
     end
 
-    self:CreateMissingPanel()
-    if not self.missingPanel then
-        return
-    end
-
-    if self.missingPanel:IsShown() then
-        self.missingPanel:Hide()
+    if self.activeView == "missing" then
+        self:ShowPanelView("config")
     else
-        if self.configPanel then
-            self.configPanel:Hide()
-        end
-        self.missingPanel:Show()
-        self:UpdateMissingList()
+        self:ShowPanelView("missing")
     end
 end
 
 function Scanner:CreateMissingPanel()
-    if self.missingPanel or not AuctionHouseFrame then
+    if self.missingPanel or not self.panel or not self.panel.contentHost then
         return
     end
 
-    local panel = CreateFrame("Frame", "CraftSimEnhancerAuctionHouseScanMissingPanel", AuctionHouseFrame, "BackdropTemplate")
-    panel:SetSize(480, 320)
-    panel:SetPoint("TOPLEFT", self.panel or AuctionHouseFrame, "TOPRIGHT", 8, 0)
-    panel:SetFrameStrata("DIALOG")
-    panel:SetFrameLevel((AuctionHouseFrame:GetFrameLevel() or 1) + 45)
-    panel:SetMovable(true)
-    panel:SetClampedToScreen(true)
+    local panel = CreateFrame("Frame", "CraftSimEnhancerAuctionHouseScanMissingPanel", self.panel.contentHost)
+    panel:SetAllPoints(self.panel.contentHost)
+    panel:SetFrameLevel((self.panel.contentHost:GetFrameLevel() or 1) + 1)
     panel:EnableMouse(true)
-    panel:RegisterForDrag("LeftButton")
-    panel:SetScript("OnDragStart", function(frame)
-        frame:StartMoving()
-    end)
-    panel:SetScript("OnDragStop", function(frame)
-        frame:StopMovingOrSizing()
-    end)
-    panel:SetBackdrop({
-        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
-        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
-        tile = true,
-        tileSize = 32,
-        edgeSize = 24,
-        insets = { left = 6, right = 6, top = 6, bottom = 6 },
-    })
 
     panel.title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     panel.title:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -14)
     panel.title:SetText("Missing AH Items")
 
-    panel.closeButton = CreateFrame("Button", nil, panel, "UIPanelCloseButton")
-    panel.closeButton:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -4, -4)
-    panel.closeButton:SetScript("OnClick", function()
-        panel:Hide()
+    panel.backButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    panel.backButton:SetSize(118, 22)
+    panel.backButton:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -16, -10)
+    panel.backButton:SetText("Back to Configure")
+    panel.backButton:SetScript("OnClick", function()
+        Scanner:ShowPanelView("config")
     end)
 
     panel.copyButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     panel.copyButton:SetSize(104, 22)
-    panel.copyButton:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -38, -10)
+    panel.copyButton:SetPoint("RIGHT", panel.backButton, "LEFT", -8, 0)
     panel.copyButton:SetText("Copy Report")
     panel.copyButton:SetScript("OnClick", function()
         Scanner:OpenMissingReport()
     end)
 
     panel.headerText = panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    panel.headerText:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -44)
-    panel.headerText:SetText("Item                                    ItemID       Reason")
+    panel.headerText:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -52)
+    panel.headerText:SetText("Item                                              ItemID       Reason")
 
     panel.emptyText = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    panel.emptyText:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -72)
-    panel.emptyText:SetWidth(436)
+    panel.emptyText:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -78)
+    panel.emptyText:SetPoint("RIGHT", panel, "RIGHT", -18, 0)
     panel.emptyText:SetJustifyH("LEFT")
     panel.emptyText:SetText("No missing items from the latest scan.")
 
     panel.scrollFrame = CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
-    panel.scrollFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -62)
-    panel.scrollFrame:SetSize(436, 238)
+    panel.scrollFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -70)
+    panel.scrollFrame:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -32, 16)
 
     panel.scrollChild = CreateFrame("Frame", nil, panel.scrollFrame)
-    panel.scrollChild:SetSize(430, 1)
+    panel.scrollChild:SetSize(536, 1)
     panel.scrollFrame:SetScrollChild(panel.scrollChild)
 
     panel:Hide()
@@ -2563,7 +2638,7 @@ end
 ---@return Frame
 function Scanner:CreateMissingRow(parent)
     local row = CreateFrame("Frame", nil, parent)
-    row:SetSize(430, 26)
+    row:SetSize(536, 26)
     row:EnableMouse(true)
 
     row.bg = row:CreateTexture(nil, "BACKGROUND")
@@ -2572,7 +2647,7 @@ function Scanner:CreateMissingRow(parent)
 
     row.nameText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     row.nameText:SetPoint("LEFT", row, "LEFT", 2, 0)
-    row.nameText:SetWidth(220)
+    row.nameText:SetWidth(310)
     row.nameText:SetJustifyH("LEFT")
     if row.nameText.SetWordWrap then
         row.nameText:SetWordWrap(false)
@@ -2594,7 +2669,7 @@ function Scanner:CreateMissingRow(parent)
 
     row.reasonText = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     row.reasonText:SetPoint("LEFT", row.itemIDText, "RIGHT", 8, 0)
-    row.reasonText:SetWidth(116)
+    row.reasonText:SetWidth(126)
     row.reasonText:SetJustifyH("LEFT")
     if row.reasonText.SetWordWrap then
         row.reasonText:SetWordWrap(false)
@@ -2661,25 +2736,18 @@ function Scanner:ToggleConfigPanel()
         self:SetStatus("Choose at least one profession first.")
         return
     end
-
-    self:CreateConfigPanel()
-    if not self.configPanel then
-        return
-    end
-
-    if self.configPanel:IsShown() then
-        self.configPanel:Hide()
-    else
-        if self.missingPanel then
-            self.missingPanel:Hide()
-        end
-        self.configPanel:Show()
-        self:UpdateConfigList()
-    end
+    self:ShowPanelView("config")
 end
 
 ---@return string profession
 function Scanner:GetConfigProfession()
+    -- The recipe tree already groups every profession selected in the left
+    -- column. Keep the saved profession filter for the flat Item Details view,
+    -- but never let that hidden filter narrow the hierarchy.
+    if self.configView == "presets" then
+        return "ALL"
+    end
+
     local profession = Config:GetConfigProfession()
     local selectedProfessions = self:GetSelectedProfessions()
     if profession ~= "ALL" and (not self:GetProfessionInfoByName(profession) or not selectedProfessions[profession]) then
@@ -2789,7 +2857,7 @@ end
 ---@return Frame row
 function Scanner:CreateConfigRow(parent)
     local row = CreateFrame("Frame", nil, parent)
-    row:SetSize(470, 24)
+    row:SetSize(536, 24)
     row:EnableMouse(true)
 
     row.bg = row:CreateTexture(nil, "BACKGROUND")
@@ -2817,7 +2885,7 @@ function Scanner:CreateConfigRow(parent)
 
     row.nameText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     row.nameText:SetPoint("LEFT", row.typeText, "RIGHT", 8, 0)
-    row.nameText:SetWidth(235)
+    row.nameText:SetWidth(295)
     row.nameText:SetJustifyH("LEFT")
     row.nameText:SetWordWrap(false)
 
@@ -2852,8 +2920,6 @@ function Scanner:UpdateConfigList()
         return
     end
 
-    panel.professionButton:SetText(self:GetProfessionDropdownText(self:GetConfigProfession()))
-
     for _, row in ipairs(self.configRows) do
         row:Hide()
     end
@@ -2864,15 +2930,33 @@ function Scanner:UpdateConfigList()
     self.configTargets = self:GetConfigTargets()
 
     if self.configView == "presets" then
-        panel.headerText:SetText("Preset                                                      Selected")
-        panel.presetButton:SetText("Items")
+        panel.professionButton:Hide()
+        panel.presetButton:ClearAllPoints()
+        panel.presetButton:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -44)
+        panel.presetButton:SetText("Item Details")
+        panel.headerText:Hide()
+        panel.scrollFrame:ClearAllPoints()
+        panel.scrollFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -76)
+        panel.scrollFrame:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -32, 16)
         self:UpdatePresetList()
         self:UpdateConfigSummary()
         return
     end
 
+    panel.professionButton:SetText(self:GetProfessionDropdownText(self:GetConfigProfession()))
+    panel.professionButton:Show()
+    panel.professionButton:ClearAllPoints()
+    panel.professionButton:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -44)
+    panel.presetButton:ClearAllPoints()
+    panel.presetButton:SetPoint("LEFT", panel.professionButton, "RIGHT", 8, 0)
+    panel.headerText:ClearAllPoints()
+    panel.headerText:SetPoint("TOPLEFT", panel, "TOPLEFT", 38, -80)
     panel.headerText:SetText("Type       Item                                      ItemID     Recipes")
-    panel.presetButton:SetText("Presets")
+    panel.headerText:Show()
+    panel.presetButton:SetText("Recipe Groups")
+    panel.scrollFrame:ClearAllPoints()
+    panel.scrollFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -96)
+    panel.scrollFrame:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -32, 16)
 
     local rowHeight = 24
     for index, target in ipairs(self.configTargets) do
@@ -2896,21 +2980,100 @@ function Scanner:UpdateConfigList()
     self:UpdateConfigSummary()
 end
 
+---@param recipe table
+---@return string
+function Scanner:GetRecipeTreeIdentity(recipe)
+    local recipeID = tonumber(recipe and recipe.recipeID)
+    if recipeID then
+        return "id:" .. tostring(recipeID)
+    end
+    return "name:" .. tostring(recipe and recipe.profession or "") .. ":" ..
+        tostring(recipe and recipe.stratName or "")
+end
+
+---@param recipe table
+---@return number?
+---@return table?
+function Scanner:GetRecipeCategoryInfo(recipe)
+    local data = ns.Data.RecipeCategories or {}
+    local categoryID
+    if recipe.recipeID then
+        categoryID = data.recipeIDs and data.recipeIDs[tonumber(recipe.recipeID)]
+    else
+        local nameKey = tostring(recipe.profession or "") .. ":" .. tostring(recipe.stratName or "")
+        categoryID = data.recipeNames and data.recipeNames[nameKey]
+    end
+    return categoryID, categoryID and data.categories and data.categories[categoryID]
+end
+
+---@param targetMap table<string, table>
+---@return table[] targets
+function Scanner:TargetMapToList(targetMap)
+    local targets = {}
+    for _, target in pairs(targetMap or {}) do
+        table.insert(targets, target)
+    end
+    table.sort(targets, function(left, right)
+        return tostring(left.label or left.itemID) < tostring(right.label or right.itemID)
+    end)
+    return targets
+end
+
+---@return table<string, table<string, table>> targetsByRecipe
+function Scanner:BuildTargetsByRecipeIdentity()
+    local targetsByRecipe = {}
+    local function add(identity, target)
+        targetsByRecipe[identity] = targetsByRecipe[identity] or {}
+        targetsByRecipe[identity][target.key] = target
+    end
+
+    for _, target in ipairs(self.configTargets or {}) do
+        for recipeID in pairs(target.sourceRecipeMap or {}) do
+            add("id:" .. tostring(recipeID), target)
+        end
+        for profession, sourceNames in pairs(target.sourceNamesByProfession or {}) do
+            for sourceName in pairs(sourceNames) do
+                add("name:" .. tostring(profession) .. ":" .. tostring(sourceName), target)
+            end
+        end
+    end
+    return targetsByRecipe
+end
+
+---@param stateMap table<string, boolean>
+---@param key string
+---@param defaultValue boolean
+---@return boolean
+function Scanner:GetTreeExpanded(stateMap, key, defaultValue)
+    if stateMap[key] == nil then
+        stateMap[key] = defaultValue
+    end
+    return stateMap[key] == true
+end
+
 ---@return table[] entries
 function Scanner:GetPresetListEntries()
+    local quickSetsKey = "quick-sets"
+    local quickSetsExpanded = self:GetTreeExpanded(self.expandedQuickSetGroups, quickSetsKey, true)
     local entries = {
-        { kind = "header", label = "Quick Sets" },
-        { kind = "preset", label = "Select All", id = self.PRESET_IDS.ALL },
-        { kind = "preset", label = "Clear All", id = self.PRESET_IDS.NONE },
-        { kind = "preset", label = "Inputs", id = self.PRESET_IDS.INPUTS },
-        { kind = "preset", label = "Outputs", id = self.PRESET_IDS.OUTPUTS },
-        { kind = "preset", label = "Commodities", id = self.PRESET_IDS.COMMODITIES },
-        { kind = "preset", label = "Equipment", id = self.PRESET_IDS.EQUIPMENT },
-        { kind = "preset", label = "Materials", id = self.PRESET_IDS.MATERIALS },
+        {
+            kind = "quicksets",
+            key = quickSetsKey,
+            label = "Quick Sets",
+            expanded = quickSetsExpanded,
+        },
     }
+    if quickSetsExpanded then
+        table.insert(entries, { kind = "preset", label = "All Scan Targets", id = self.PRESET_IDS.ALL })
+        table.insert(entries, { kind = "preset", label = "Inputs (reagents)", id = self.PRESET_IDS.INPUTS })
+        table.insert(entries, { kind = "preset", label = "Outputs (crafted items)", id = self.PRESET_IDS.OUTPUTS })
+        table.insert(entries, { kind = "preset", label = "Commodities", id = self.PRESET_IDS.COMMODITIES })
+        table.insert(entries, { kind = "preset", label = "Equipment", id = self.PRESET_IDS.EQUIPMENT })
+        table.insert(entries, { kind = "preset", label = "Materials", id = self.PRESET_IDS.MATERIALS })
+    end
 
     local configProfession = self:GetConfigProfession()
-    local professions = {}
+    local professions
     if configProfession == "ALL" then
         professions = self:GetSelectedProfessionInfos()
     else
@@ -2919,28 +3082,170 @@ function Scanner:GetPresetListEntries()
         end)
     end
 
+    local targetsByRecipe = self:BuildTargetsByRecipeIdentity()
+    local firstVisibleProfession = true
     for _, professionInfo in ipairs(professions) do
-        table.insert(entries, {
-            kind = "header",
-            label = self:GetProfessionDisplayName(professionInfo),
-        })
-        for _, section in ipairs(self.PROFESSION_PRESET_MENUS[professionInfo.name] or {}) do
+        local profession = professionInfo.name
+        local categoriesByID = {}
+        for _, recipe in ipairs(self:GetGeneratedRecipes()) do
+            if recipe.profession == profession then
+                local recipeTargets = targetsByRecipe[self:GetRecipeTreeIdentity(recipe)]
+                if recipeTargets and next(recipeTargets) then
+                    local categoryID, categoryInfo = self:GetRecipeCategoryInfo(recipe)
+                    categoryID = categoryID or 0
+                    categoryInfo = categoryInfo or {
+                        name = "Other",
+                        order = 999,
+                        parentName = "Uncategorized",
+                        parentOrder = 999,
+                    }
+                    local category = categoriesByID[categoryID]
+                    if not category then
+                        category = {
+                            id = categoryID,
+                            info = categoryInfo,
+                            recipes = {},
+                            targetMap = {},
+                        }
+                        categoriesByID[categoryID] = category
+                    end
+                    local recipeTargetList = self:TargetMapToList(recipeTargets)
+                    table.insert(category.recipes, {
+                        recipe = recipe,
+                        targets = recipeTargetList,
+                    })
+                    for _, target in ipairs(recipeTargetList) do
+                        category.targetMap[target.key] = target
+                    end
+                end
+            end
+        end
+
+        local categories = {}
+        local professionTargetMap = {}
+        for _, category in pairs(categoriesByID) do
+            category.targets = self:TargetMapToList(category.targetMap)
+            table.sort(category.recipes, function(left, right)
+                return tostring(left.recipe.stratName or "") < tostring(right.recipe.stratName or "")
+            end)
+            table.insert(categories, category)
+            for _, target in ipairs(category.targets) do
+                professionTargetMap[target.key] = target
+            end
+        end
+        table.sort(categories, function(left, right)
+            local leftOrder = tonumber(left.info.order) or 999
+            local rightOrder = tonumber(right.info.order) or 999
+            if leftOrder ~= rightOrder then
+                return leftOrder < rightOrder
+            end
+            return tostring(left.info.name or "") < tostring(right.info.name or "")
+        end)
+
+        if #categories > 0 then
+            local professionKey = "profession:" .. profession
+            local defaultExpanded = configProfession ~= "ALL" or firstVisibleProfession
+            local professionExpanded = self:GetTreeExpanded(
+                self.expandedProfessionGroups, professionKey, defaultExpanded)
+            local parentName = categories[1].info.parentName or "Profession Recipes"
             table.insert(entries, {
-                kind = "section",
-                label = section.label,
+                kind = "profession",
+                key = professionKey,
+                label = self:GetProfessionDisplayName(professionInfo) .. " — " .. tostring(parentName),
+                profession = profession,
+                expanded = professionExpanded,
+                targets = self:TargetMapToList(professionTargetMap),
             })
-            for _, preset in ipairs(section.presets or {}) do
-                table.insert(entries, {
-                    kind = "preset",
-                    label = preset.label,
-                    id = preset.id,
-                    contextProfession = professionInfo.name,
-                })
+            firstVisibleProfession = false
+
+            if professionExpanded then
+                for _, category in ipairs(categories) do
+                    local categoryKey = "category:" .. profession .. ":" .. tostring(category.id)
+                    local categoryExpanded = self:GetTreeExpanded(
+                        self.expandedCategoryGroups, categoryKey, true)
+                    table.insert(entries, {
+                        kind = "category",
+                        key = categoryKey,
+                        label = tostring(category.info.name or "Other"),
+                        profession = profession,
+                        expanded = categoryExpanded,
+                        targets = category.targets,
+                    })
+                    if categoryExpanded then
+                        for _, recipeEntry in ipairs(category.recipes) do
+                            table.insert(entries, {
+                                kind = "recipe",
+                                label = tostring(recipeEntry.recipe.stratName or "Unnamed Recipe"),
+                                profession = profession,
+                                recipe = recipeEntry.recipe,
+                                targets = recipeEntry.targets,
+                            })
+                        end
+                    end
+                end
             end
         end
     end
 
     return entries
+end
+
+---@param entry table
+---@return string state
+---@return number selectedCount
+---@return number totalCount
+function Scanner:GetTreeEntrySelectionState(entry)
+    if entry.kind == "preset" then
+        return self:GetPresetSelectionState(entry.id, entry.contextProfession)
+    end
+    local targets = entry.targets or {}
+    local selectedCount = self:GetSelectedTargetCount(targets)
+    return self:GetPresetSelectionStateFromCounts("TREE", selectedCount, #targets), selectedCount, #targets
+end
+
+---@param entry table
+function Scanner:ToggleTreeEntrySelection(entry)
+    if not entry or entry.kind == "quicksets" then
+        return
+    end
+    local targets
+    if entry.kind == "preset" then
+        targets = self:GetPresetMatchedTargets(entry.id, entry.contextProfession)
+    else
+        targets = entry.targets or {}
+    end
+    local selectedCount = self:GetSelectedTargetCount(targets)
+    local selected = selectedCount ~= #targets
+    if #targets == 0 then
+        return
+    end
+    for _, target in ipairs(targets) do
+        Config:SaveTargetSelected(target.key, selected)
+    end
+    self.scanComplete = false
+    self.overridesPushed = false
+    self:SetStatus(string.format("%s %d scan targets for %s.",
+        selected and "Selected" or "Cleared", #targets, tostring(entry.label or "this group")))
+    self:UpdateButtons()
+    self:UpdateProgressText()
+    self:UpdateConfigList()
+end
+
+---@param entry table
+function Scanner:ToggleTreeEntryExpansion(entry)
+    if not entry or not entry.key then
+        return
+    end
+    if entry.kind == "quicksets" then
+        self.expandedQuickSetGroups[entry.key] = not entry.expanded
+    elseif entry.kind == "profession" then
+        self.expandedProfessionGroups[entry.key] = not entry.expanded
+    elseif entry.kind == "category" then
+        self.expandedCategoryGroups[entry.key] = not entry.expanded
+    else
+        return
+    end
+    self:UpdateConfigList()
 end
 
 ---@param row Frame
@@ -2949,40 +3254,66 @@ function Scanner:UpdatePresetRow(row, entry)
     row.entry = entry
     row:SetAlpha(1)
     row.headerText:Hide()
-    row.stateText:Hide()
+    row.expandText:Hide()
+    row.checkbox:Hide()
+    row.mixedTexture:Hide()
     row.labelText:Hide()
     row.countText:Hide()
     row:EnableMouse(false)
 
-    if entry.kind == "header" or entry.kind == "section" then
-        row.headerText:SetText(entry.label)
-        row.headerText:SetTextColor(entry.kind == "header" and 1 or 0.75, entry.kind == "header" and 0.82 or 0.75,
-            entry.kind == "header" and 0 or 0.75)
+    if entry.kind == "quicksets" then
+        row.expandText:ClearAllPoints()
+        row.expandText:SetPoint("LEFT", row, "LEFT", 3, 0)
+        row.expandText:SetText(entry.expanded and "−" or "+")
+        row.expandText:Show()
         row.headerText:ClearAllPoints()
-        row.headerText:SetPoint("LEFT", row, "LEFT", entry.kind == "section" and 18 or 2, 0)
+        row.headerText:SetPoint("LEFT", row, "LEFT", 22, 0)
+        row.headerText:SetText(entry.label)
+        row.headerText:SetTextColor(1, 0.82, 0)
         row.headerText:Show()
+        row:EnableMouse(true)
         return
     end
 
-    local state, selectedCount, totalCount = self:GetPresetSelectionState(entry.id, entry.contextProfession)
-    local stateText = "[ ]"
-    local red, green, blue = 0.65, 0.65, 0.65
-    if state == "all" then
-        stateText = "[x]"
-        red, green, blue = 0.2, 1, 0.2
-    elseif state == "partial" then
-        stateText = "[-]"
-        red, green, blue = 1, 0.82, 0
+    local state, selectedCount, totalCount = self:GetTreeEntrySelectionState(entry)
+    local checkboxX = 16
+    if entry.kind == "profession" then
+        checkboxX = 20
+    elseif entry.kind == "category" then
+        checkboxX = 40
+    elseif entry.kind == "recipe" then
+        checkboxX = 58
     end
 
-    row.stateText:SetText(stateText)
-    row.stateText:SetTextColor(red, green, blue)
+    if entry.kind == "profession" or entry.kind == "category" then
+        row.expandText:ClearAllPoints()
+        row.expandText:SetPoint("LEFT", row, "LEFT", entry.kind == "profession" and 3 or 23, 0)
+        row.expandText:SetText(entry.expanded and "−" or "+")
+        row.expandText:Show()
+    end
+
+    row.checkbox:ClearAllPoints()
+    row.checkbox:SetPoint("LEFT", row, "LEFT", checkboxX, 0)
+    row.checkbox:SetChecked(state == "all")
+    row.mixedTexture:SetShown(state == "partial")
+    row.checkbox:Show()
+    SetButtonEnabled(row.checkbox, totalCount > 0)
+
+    row.labelText:ClearAllPoints()
+    row.labelText:SetPoint("LEFT", row.checkbox, "RIGHT", 3, 0)
+    row.labelText:SetWidth(math.max(180, 438 - checkboxX))
     row.labelText:SetText(entry.label)
+    if entry.kind == "profession" then
+        row.labelText:SetTextColor(1, 0.82, 0)
+    elseif entry.kind == "category" then
+        row.labelText:SetTextColor(1, 0.82, 0.2)
+    else
+        row.labelText:SetTextColor(1, 1, 1)
+    end
     row.countText:SetText(string.format("%d/%d", selectedCount, totalCount))
-    row.stateText:Show()
     row.labelText:Show()
     row.countText:Show()
-    row:EnableMouse(totalCount > 0)
+    row:EnableMouse(totalCount > 0 or entry.kind == "profession" or entry.kind == "category")
     row:SetAlpha(totalCount > 0 and 1 or 0.45)
 end
 
@@ -2990,7 +3321,7 @@ end
 ---@return Frame row
 function Scanner:CreatePresetRow(parent)
     local row = CreateFrame("Button", nil, parent)
-    row:SetSize(470, 24)
+    row:SetSize(536, 24)
 
     row.bg = row:CreateTexture(nil, "BACKGROUND")
     row.bg:SetAllPoints(row)
@@ -3002,17 +3333,26 @@ function Scanner:CreatePresetRow(parent)
 
     row.headerText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     row.headerText:SetPoint("LEFT", row, "LEFT", 2, 0)
-    row.headerText:SetWidth(440)
+    row.headerText:SetWidth(506)
     row.headerText:SetJustifyH("LEFT")
 
-    row.stateText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    row.stateText:SetPoint("LEFT", row, "LEFT", 18, 0)
-    row.stateText:SetWidth(28)
-    row.stateText:SetJustifyH("LEFT")
+    row.expandText = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    row.expandText:SetWidth(14)
+    row.expandText:SetJustifyH("CENTER")
+
+    row.checkbox = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
+    row.checkbox:SetSize(22, 22)
+    row.checkbox:SetScript("OnClick", function()
+        Scanner:ToggleTreeEntrySelection(row.entry)
+    end)
+
+    row.mixedTexture = row.checkbox:CreateTexture(nil, "OVERLAY")
+    row.mixedTexture:SetPoint("CENTER", row.checkbox, "CENTER", 0, 0)
+    row.mixedTexture:SetSize(10, 2)
+    row.mixedTexture:SetColorTexture(1, 0.82, 0, 1)
+    row.mixedTexture:Hide()
 
     row.labelText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    row.labelText:SetPoint("LEFT", row.stateText, "RIGHT", 4, 0)
-    row.labelText:SetWidth(340)
     row.labelText:SetJustifyH("LEFT")
     row.labelText:SetWordWrap(false)
 
@@ -3023,20 +3363,33 @@ function Scanner:CreatePresetRow(parent)
 
     row:SetScript("OnClick", function(selfRow)
         local entry = selfRow.entry
-        if entry and entry.kind == "preset" then
-            Scanner:ApplyConfigPreset(entry.id, entry.contextProfession)
+        if entry and (entry.kind == "quicksets" or entry.kind == "profession" or entry.kind == "category") then
+            Scanner:ToggleTreeEntryExpansion(entry)
+        else
+            Scanner:ToggleTreeEntrySelection(entry)
         end
     end)
     row:SetScript("OnEnter", function(selfRow)
         local entry = selfRow.entry
-        if not entry or entry.kind ~= "preset" then
+        if not entry then
             return
         end
-        local state, selectedCount, totalCount = Scanner:GetPresetSelectionState(entry.id, entry.contextProfession)
+        if entry.kind == "quicksets" then
+            GameTooltip:SetOwner(selfRow, "ANCHOR_RIGHT")
+            GameTooltip:AddLine(entry.label)
+            GameTooltip:AddLine("Click to expand or collapse the common scan selections.", 0.8, 0.8, 0.8, true)
+            GameTooltip:Show()
+            return
+        end
+        local state, selectedCount, totalCount = Scanner:GetTreeEntrySelectionState(entry)
         GameTooltip:SetOwner(selfRow, "ANCHOR_RIGHT")
         GameTooltip:AddLine(entry.label)
-        GameTooltip:AddLine(string.format("%d of %d matching items selected (%s).", selectedCount, totalCount, state),
+        GameTooltip:AddLine(string.format("%d of %d scan targets selected (%s).", selectedCount, totalCount, state),
             1, 1, 1, true)
+        if entry.kind == "profession" or entry.kind == "category" then
+            GameTooltip:AddLine("Click the row to expand or collapse. Click the checkbox to change selection.",
+                0.8, 0.8, 0.8, true)
+        end
         GameTooltip:Show()
     end)
     row:SetScript("OnLeave", GameTooltip_Hide)
@@ -3061,14 +3414,18 @@ function Scanner:UpdatePresetList()
             row = self:CreatePresetRow(panel.scrollChild)
             self.presetRows[index] = row
         end
-        local rowHeight = entry.kind == "header" and 28 or entry.kind == "section" and 22 or 24
+        local rowHeight = entry.kind == "quicksets" and 28 or entry.kind == "profession" and 28 or
+            entry.kind == "recipe" and 22 or 24
         row:SetHeight(rowHeight)
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", panel.scrollChild, "TOPLEFT", 0, -offset)
-        row.bg:SetShown(entry.kind == "preset" and index % 2 == 0)
+        row.bg:SetShown(entry.kind ~= "quicksets" and index % 2 == 0)
         self:UpdatePresetRow(row, entry)
         row:Show()
         offset = offset + rowHeight
+    end
+    for index = #entries + 1, #self.presetRows do
+        self.presetRows[index]:Hide()
     end
     self.presetMenuTargetCache = nil
     panel.scrollChild:SetHeight(math.max(1, offset))
@@ -3212,68 +3569,43 @@ function Scanner:BuildPresetMenu(rootDescription)
 end
 
 function Scanner:CreateConfigPanel()
-    if self.configPanel or not AuctionHouseFrame then
+    if self.configPanel or not self.panel or not self.panel.contentHost then
         return
     end
 
-    local panel = CreateFrame("Frame", "CraftSimEnhancerAuctionHouseScanConfigPanel", AuctionHouseFrame, "BackdropTemplate")
-    panel:SetSize(520, 585)
-    panel:SetPoint("TOPLEFT", self.panel or AuctionHouseFrame, "TOPRIGHT", 8, 0)
-    panel:SetFrameStrata("DIALOG")
-    panel:SetFrameLevel((AuctionHouseFrame:GetFrameLevel() or 1) + 45)
-    panel:SetMovable(true)
-    panel:SetClampedToScreen(true)
+    local panel = CreateFrame("Frame", "CraftSimEnhancerAuctionHouseScanConfigPanel", self.panel.contentHost)
+    panel:SetAllPoints(self.panel.contentHost)
+    panel:SetFrameLevel((self.panel.contentHost:GetFrameLevel() or 1) + 1)
     panel:EnableMouse(true)
-    panel:RegisterForDrag("LeftButton")
-    panel:SetScript("OnDragStart", function(frame)
-        frame:StartMoving()
-    end)
-    panel:SetScript("OnDragStop", function(frame)
-        frame:StopMovingOrSizing()
-    end)
-    panel:SetBackdrop({
-        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
-        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
-        tile = true,
-        tileSize = 32,
-        edgeSize = 24,
-        insets = { left = 6, right = 6, top = 6, bottom = 6 },
-    })
 
     panel.title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     panel.title:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -14)
-    panel.title:SetText("Configure AH Scan")
+    panel.title:SetText("Configure Scan")
 
-    panel.closeButton = CreateFrame("Button", nil, panel, "UIPanelCloseButton")
-    panel.closeButton:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -4, -4)
-    panel.closeButton:SetScript("OnClick", function()
-        panel:Hide()
+    panel.helpButton = CreateFrame("Button", nil, panel)
+    panel.helpButton:SetSize(22, 22)
+    panel.helpButton:SetPoint("LEFT", panel.title, "RIGHT", 4, 0)
+    panel.helpButton:SetNormalTexture("Interface\\common\\help-i")
+    panel.helpButton:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight", "ADD")
+    panel.helpButton:SetScript("OnEnter", function(button)
+        GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("Scan Configuration")
+        GameTooltip:AddLine("Recipe Groups selects complete professions, in-game categories, or individual recipes.",
+            1, 1, 1, true)
+        GameTooltip:AddLine("Item Details provides exact Auction House target control and an optional profession filter.",
+            1, 1, 1, true)
+        GameTooltip:AddLine("A mixed checkbox means only part of that group is selected.", 0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
     end)
-
-    panel.helpBg = panel:CreateTexture(nil, "BACKGROUND")
-    panel.helpBg:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -42)
-    panel.helpBg:SetSize(486, 58)
-    panel.helpBg:SetColorTexture(0, 0, 0, 0.22)
-
-    panel.helpTitle = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    panel.helpTitle:SetPoint("TOPLEFT", panel.helpBg, "TOPLEFT", 8, -7)
-    panel.helpTitle:SetText("Quick setup")
-
-    panel.helpText = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    panel.helpText:SetPoint("TOPLEFT", panel.helpTitle, "BOTTOMLEFT", 0, -4)
-    panel.helpText:SetWidth(470)
-    panel.helpText:SetHeight(34)
-    panel.helpText:SetJustifyH("LEFT")
-    panel.helpText:SetJustifyV("TOP")
-    panel.helpText:SetText("Shows only professions selected on the scanner panel. Choose preset groups, then use Items to fine tune the scan list.\nInput rows price reagents. Output rows price crafted items.")
+    panel.helpButton:SetScript("OnLeave", GameTooltip_Hide)
 
     panel.professionButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-    panel.professionButton:SetSize(150, 24)
-    panel.professionButton:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -112)
+    panel.professionButton:SetSize(190, 24)
+    panel.professionButton:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -44)
     panel.professionButton:SetText(self:GetProfessionDropdownText(self:GetConfigProfession()))
     panel.professionButton:SetScript("OnClick", function(button)
         ns.Compat.WoW:OpenContextMenu(button, function(_, rootDescription)
-            rootDescription:CreateRadio("Selected Professions", function()
+            rootDescription:CreateRadio("All Selected Professions", function()
                 return Config:GetConfigProfession() == "ALL"
             end, function()
                 Config:SaveConfigProfession("ALL")
@@ -3295,27 +3627,28 @@ function Scanner:CreateConfigPanel()
     end)
     panel.professionButton:SetScript("OnEnter", function(button)
         GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
-        GameTooltip:AddLine("Profession View")
-        GameTooltip:AddLine("Filters the selected-profession list so you can tune one profession at a time.", 1, 1, 1, true)
+        GameTooltip:AddLine("Item Details Profession")
+        GameTooltip:AddLine("Limit the flat item list to one selected profession. This does not change which professions will be scanned.",
+            1, 1, 1, true)
         GameTooltip:Show()
     end)
     panel.professionButton:SetScript("OnLeave", GameTooltip_Hide)
 
     panel.presetButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-    panel.presetButton:SetSize(110, 24)
+    panel.presetButton:SetSize(120, 24)
     panel.presetButton:SetPoint("LEFT", panel.professionButton, "RIGHT", 8, 0)
-    panel.presetButton:SetText("Items")
+    panel.presetButton:SetText("Item Details")
     panel.presetButton:SetScript("OnClick", function()
         Scanner:SetConfigView(Scanner.configView == "presets" and "items" or "presets")
     end)
     panel.presetButton:SetScript("OnEnter", function(button)
         GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
         if Scanner.configView == "presets" then
-            GameTooltip:AddLine("Items")
-            GameTooltip:AddLine("Fine tune individual scan items.", 1, 1, 1, true)
+            GameTooltip:AddLine("Item Details")
+            GameTooltip:AddLine("Fine tune individual Auction House scan targets.", 1, 1, 1, true)
         else
-            GameTooltip:AddLine("Presets")
-            GameTooltip:AddLine("Select common scan groups.", 1, 1, 1, true)
+            GameTooltip:AddLine("Recipe Groups")
+            GameTooltip:AddLine("Choose targets by profession, in-game category, or recipe.", 1, 1, 1, true)
         end
         GameTooltip:Show()
     end)
@@ -3327,15 +3660,15 @@ function Scanner:CreateConfigPanel()
     panel.summaryText:SetJustifyH("LEFT")
 
     panel.headerText = panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    panel.headerText:SetPoint("TOPLEFT", panel, "TOPLEFT", 38, -146)
+    panel.headerText:SetPoint("TOPLEFT", panel, "TOPLEFT", 38, -80)
     panel.headerText:SetText("Type       Item                                      ItemID     Recipes")
 
     panel.scrollFrame = CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
-    panel.scrollFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -164)
-    panel.scrollFrame:SetSize(476, 390)
+    panel.scrollFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -96)
+    panel.scrollFrame:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -32, 16)
 
     panel.scrollChild = CreateFrame("Frame", nil, panel.scrollFrame)
-    panel.scrollChild:SetSize(470, 1)
+    panel.scrollChild:SetSize(536, 1)
     panel.scrollFrame:SetScrollChild(panel.scrollChild)
 
     panel:Hide()
@@ -3737,13 +4070,21 @@ function Scanner:StartScan()
     self.scanComplete = false
     self.overridesPushed = false
     if self.missingPanel then
-        self.missingPanel:Hide()
         self:UpdateMissingList()
+    end
+    if self.activeView == "missing" then
+        self:ShowPanelView("config")
     end
 
     local targets, errorMessage = self:BuildScanTargets()
     if not targets then
         self:SetStatus(errorMessage)
+        self:UpdateButtons()
+        self:UpdateProgressText()
+        return
+    end
+    if #targets == 0 then
+        self:SetStatus("Select at least one scan target.")
         self:UpdateButtons()
         self:UpdateProgressText()
         return
@@ -3761,11 +4102,6 @@ function Scanner:StartScan()
     self:SetStatus(string.format("Scanning %d AH items. Blizzard throttling may make this take a bit.", self.totalTargets))
     self:UpdateButtons()
     self:UpdateProgressText()
-
-    if self.totalTargets == 0 then
-        self:FinishScan()
-        return
-    end
 
     self:TrySendNextQuery()
 end
@@ -4917,16 +5253,13 @@ function Scanner:AUCTION_HOUSE_SHOW()
 end
 
 function Scanner:AUCTION_HOUSE_CLOSED()
-    if self.panel then
-        self.panel:Hide()
-    end
+    self:HideAuctionHouseTab()
     if self.configPanel then
         self.configPanel:Hide()
     end
     if self.missingPanel then
         self.missingPanel:Hide()
     end
-    self:UpdateLauncherTabState()
     if self.button then
         self.button:Hide()
     end

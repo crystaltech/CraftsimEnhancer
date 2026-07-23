@@ -52,6 +52,8 @@ ifgte(dbregionsoldperday, 0.1, min(20, max(1, roundup(3 * dbregionsoldperday))),
 
 This targets roughly three days of regional sales, skips items averaging fewer than 0.1 sales per day, and limits the target to 20. It returns a target inventory quantity, not a price or the number still needing to be crafted. CraftSim subtracts owned inventory separately, so do not subtract `numinventory` in this expression.
 
+CraftSim also has a separate **TSM sale-rate threshold** in the gear menu beside **Send to Craft Queue**. That filter runs before the restock expression. Newly released items often have no TSM regional sales data yet, so a threshold such as `0.1` can silently reject every scan result and make the button appear to do nothing. Set that threshold to `0` when you want new items to remain eligible. Temporarily disabling **Use TSM Restock Expression** makes CraftSim use its **Default Queue Amount** instead and is a useful troubleshooting check.
+
 For slower gear, a one-week target capped at 5 is more conservative:
 
 ```text

@@ -6,7 +6,7 @@ Enable `/console scriptErrors 1` and BugSack/BugGrabber if installed.
 
 - Install stock CraftSim and `CraftSimEnhancer` as sibling addon folders.
 - First login with both enabled: verify one Enhancer load message and no Lua error.
-- Run `/cse status`; confirm version 1.0.0, CraftSim 26.1.10 (or the installed version), current interface, all enabled modules initialized, migration result, and no compatibility failures.
+- Run `/cse status`; confirm version 1.1.0, CraftSim 26.1.10 (or the installed version), current interface, all enabled modules initialized, migration result, and no compatibility failures.
 - Run `/reload`; verify controls and hooks are not duplicated.
 - Disable CraftSim while leaving CraftSim Enhancer selected. Because `## RequiredDeps: CraftSim` is intentional, WoW should refuse to load the Enhancer; `/cse` will not be registered. Re-enable CraftSim.
 - Test a fresh install with no `CraftSimDB.auctionHouseScanDB`; status should say no legacy settings were found.
