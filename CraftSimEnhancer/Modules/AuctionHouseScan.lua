@@ -1919,7 +1919,7 @@ function Scanner:SelectAuctionHouseTab()
             PanelTemplates_SelectTab(self.button)
         end
         if AuctionHouseFrame.SetTitle then
-            AuctionHouseFrame:SetTitle("CraftSim Scanner")
+            AuctionHouseFrame:SetTitle("CSE Recon")
         end
         self.panel:Show()
     end
@@ -1941,7 +1941,7 @@ function Scanner:CreateButton()
     local button
     if library then
         if not library:DoesIDExist(AUCTION_HOUSE_TAB_ID) then
-            library:CreateTab(AUCTION_HOUSE_TAB_ID, self.panel, "CraftSim", "CraftSim Scanner")
+            library:CreateTab(AUCTION_HOUSE_TAB_ID, self.panel, "CSE Recon", "CSE Recon")
         end
         button = library:GetButton(AUCTION_HOUSE_TAB_ID)
         self.tabLibrary = library
@@ -1949,7 +1949,7 @@ function Scanner:CreateButton()
     else
         button = CreateFrame("Button", "CraftSimEnhancerAuctionHouseScanButton", AuctionHouseFrame,
             "AuctionHouseFrameDisplayModeTabTemplate")
-        button:SetText("CraftSim")
+        button:SetText("CSE Recon")
         button:SetScript("OnClick", function()
             Scanner:SelectAuctionHouseTab()
             if PlaySound and SOUNDKIT and SOUNDKIT.IG_CHARACTER_INFO_TAB then
@@ -1968,9 +1968,8 @@ function Scanner:CreateButton()
     end
     button:SetScript("OnEnter", function(selfButton)
         GameTooltip:SetOwner(selfButton, "ANCHOR_RIGHT")
-        GameTooltip:AddLine("CraftSim AH Scan")
-        GameTooltip:AddLine("Scan selected generated crafts and reagents, then push the prices to CraftSim overrides.", 1,
-            1, 1, true)
+        GameTooltip:AddLine("CSE Recon")
+        GameTooltip:AddLine("Scan the Auction House for CraftSim pricing intelligence.", 1, 1, 1, true)
         GameTooltip:Show()
     end)
     button:SetScript("OnLeave", GameTooltip_Hide)
