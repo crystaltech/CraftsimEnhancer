@@ -10,9 +10,9 @@ The addon is currently developed for World of Warcraft Retail interface 120007 a
 - Filter scans by profession, category, and configurable presets.
 - Calculate input prices from fill quantities with outlier trimming.
 - Push reagent and recipe-result prices into CraftSim's price overrides. Missing outputs use CraftSim's saved average crafting cost divided by 95% for an AH-fee break-even estimate; lower ranks are capped below real higher-rank listings.
-- Buy outstanding vendor-sold reagents directly from an open merchant.
-- Deduct purchased quantities from the corresponding Auctionator shopping list when Auctionator is installed.
-- Warn when a CraftSim shopping list includes vendor-sold reagents.
+- Separate vendor-sold reagents from CraftSim's Auctionator shopping list before Auction House purchasing begins.
+- Track the separated items in a movable, resizable, collapsible Vendor Materials window with quantities and estimated costs.
+- Buy outstanding materials directly from matching merchants and close the plan automatically when it is complete.
 - Preserve settings independently from CraftSim updates.
 
 ## Requirements
@@ -91,7 +91,7 @@ Interface/AddOns/CraftSimEnhancer/
 - `/cse status` — show versions, module states, migration status, and compatibility failures.
 - `/cse debug` — toggle debug output.
 - `/cse scan` — open the scanner while the Auction House is open.
-- `/cse vendor` — refresh Vendor Buy while a merchant is open.
+- `/cse vendor` — reopen Vendor Materials or refresh Vendor Buy while a merchant is open.
 - `/cse module <scan|vendor|notice> <on|off>` — enable or disable a module after the next reload.
 - `/cse reset confirm` — reset only CraftSim Enhancer settings.
 

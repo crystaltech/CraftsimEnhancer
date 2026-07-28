@@ -23,6 +23,10 @@ local GENERIC_RESULT_GRACE_SECONDS = 1.0
 local AUCTION_HOUSE_CUT = 0.05
 local ESTIMATED_RESULT_SOURCE = "Estimated — no auctions"
 local AUCTION_HOUSE_TAB_ID = "CraftSimEnhancerAuctionHouseScan"
+local AUCTION_HOUSE_TAB_PADDING = 20
+local AUCTION_HOUSE_TAB_MIN_WIDTH = 70
+local SMALL_AUCTION_HOUSE_TAB_PADDING = 0
+local SMALL_AUCTION_HOUSE_TAB_MIN_WIDTH = 36
 
 Scanner.button = nil
 Scanner.panel = nil
@@ -1877,6 +1881,32 @@ function Scanner:GetAuctionHouseTabLibrary()
     return nil
 end
 
+---@return boolean
+function Scanner:UsesSmallAuctionHouseTabs()
+    local auctionator = _G.Auctionator
+    local config = auctionator and auctionator.Config
+    local options = config and config.Options
+    if not config or type(config.Get) ~= "function" or not options or not options.SMALL_TABS then
+        return false
+    end
+
+    local success, useSmallTabs = pcall(config.Get, options.SMALL_TABS)
+    return success and useSmallTabs == true
+end
+
+---@param button Button|nil
+function Scanner:ResizeAuctionHouseTab(button)
+    if not button or not PanelTemplates_TabResize then
+        return
+    end
+
+    if self:UsesSmallAuctionHouseTabs() then
+        PanelTemplates_TabResize(button, SMALL_AUCTION_HOUSE_TAB_PADDING, nil, SMALL_AUCTION_HOUSE_TAB_MIN_WIDTH)
+    else
+        PanelTemplates_TabResize(button, AUCTION_HOUSE_TAB_PADDING, nil, AUCTION_HOUSE_TAB_MIN_WIDTH)
+    end
+end
+
 ---@param displayMode any
 ---@return boolean
 function Scanner:IsBuiltInAuctionHouseDisplayMode(displayMode)
@@ -1963,9 +1993,10 @@ function Scanner:CreateButton()
     end
 
     button.craftSimIsLauncherTab = true
-    if PanelTemplates_TabResize then
-        PanelTemplates_TabResize(button, 20, nil, 70)
-    end
+    self:ResizeAuctionHouseTab(button)
+    button:HookScript("OnShow", function(selfButton)
+        Scanner:ResizeAuctionHouseTab(selfButton)
+    end)
     button:SetScript("OnEnter", function(selfButton)
         GameTooltip:SetOwner(selfButton, "ANCHOR_RIGHT")
         GameTooltip:AddLine("CSE Recon")
@@ -2021,9 +2052,7 @@ function Scanner:AttachLauncherTabToAuctionHouseTabs()
     else
         button:SetPoint("BOTTOMLEFT", AuctionHouseFrame, "BOTTOMLEFT", 20, -28)
     end
-    if PanelTemplates_TabResize then
-        PanelTemplates_TabResize(button, 20, nil, 70)
-    end
+    self:ResizeAuctionHouseTab(button)
     if PanelTemplates_SetNumTabs then
         PanelTemplates_SetNumTabs(AuctionHouseFrame, #tabs)
     end
@@ -2241,6 +2270,7 @@ function Scanner:ShowButton()
     self:CreateButton()
     self:AttachLauncherTabToAuctionHouseTabs()
     if self.button then
+        self:ResizeAuctionHouseTab(self.button)
         self.button:Show()
         self:UpdateLauncherTabState()
     end
@@ -2248,6 +2278,7 @@ function Scanner:ShowButton()
         C_Timer.After(0, function()
             if Scanner.button and AuctionHouseFrame and AuctionHouseFrame:IsShown() then
                 Scanner:AttachLauncherTabToAuctionHouseTabs()
+                Scanner:ResizeAuctionHouseTab(Scanner.button)
                 Scanner:UpdateLauncherTabState()
             end
         end)

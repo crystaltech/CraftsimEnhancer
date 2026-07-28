@@ -1,7 +1,7 @@
 local _, ns = ...
 
 local Config = ns.Config
-local CURRENT_SCHEMA_VERSION = 1
+local CURRENT_SCHEMA_VERSION = 2
 local CURRENT_MIGRATION_VERSION = 1
 local DEFAULT_FILL_QUANTITY = 100
 
@@ -22,6 +22,22 @@ local DEFAULTS = {
             migratedGlobalSelectedProfessions = true,
             skippedTargets = {},
             configProfession = "ALL",
+        },
+        vendorPlan = {
+            createdAt = 0,
+            sourceListName = "",
+            items = {},
+            window = {
+                point = "CENTER",
+                relativePoint = "CENTER",
+                x = 0,
+                y = 0,
+                width = 410,
+                height = 0,
+                userSized = false,
+                collapsed = false,
+                hidden = true,
+            },
         },
     },
     profile = {},
@@ -207,4 +223,36 @@ end
 
 function Config.AuctionHouseScan:SaveConfigProfession(profession)
     self:GetData().configProfession = profession or "ALL"
+end
+
+Config.VendorPlan = {}
+
+function Config.VendorPlan:GetData()
+    return Config.db.global.vendorPlan
+end
+
+function Config.VendorPlan:GetItems()
+    local data = self:GetData()
+    data.items = data.items or {}
+    return data.items
+end
+
+function Config.VendorPlan:Replace(items, sourceListName)
+    local data = self:GetData()
+    data.items = type(items) == "table" and items or {}
+    data.createdAt = time and time() or 0
+    data.sourceListName = tostring(sourceListName or "")
+    data.window.hidden = false
+end
+
+function Config.VendorPlan:Clear()
+    local data = self:GetData()
+    data.items = {}
+    data.createdAt = 0
+    data.sourceListName = ""
+    data.window.hidden = true
+end
+
+function Config.VendorPlan:GetWindow()
+    return self:GetData().window
 end

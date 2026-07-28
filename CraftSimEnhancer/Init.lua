@@ -38,7 +38,7 @@ local function PrintHelp()
     ns:Print("/cse reset confirm - reset only CraftSim Enhancer settings")
     ns:Print("/cse module <scan|vendor|notice> <on|off> - set a module for the next reload")
     ns:Print("/cse scan - open the Auction House scanner")
-    ns:Print("/cse vendor - refresh Vendor Buy at an open merchant")
+    ns:Print("/cse vendor - show Vendor Materials or refresh Vendor Buy at an open merchant")
 end
 
 local function PrintStatus()
@@ -75,6 +75,10 @@ local function HandleSlashCommand(message)
     elseif command == "reset" then
         if remainder == "confirm" then
             ns.Config:Reset()
+            local vendorBuy = ns.Modules.VendorBuy
+            if vendorBuy and type(vendorBuy.UpdatePlanWindow) == "function" then
+                vendorBuy:UpdatePlanWindow()
+            end
             ns:Print(ns.L.RESET_DONE)
         else
             ns:Print(ns.L.RESET_WARNING)

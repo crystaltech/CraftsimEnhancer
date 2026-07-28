@@ -7,8 +7,8 @@ The addon was developed against CraftSim 26.1.10 and World of Warcraft interface
 ## Extracted features
 
 - Auction House scanner backed by the supplied generated Midnight recipe/item data, with profession filters, presets, missing-result reporting, fill/outlier pricing, lowest-output pricing, vendor fixed prices, TSM fallback, and CraftSim price-override export. Outputs with no auctions use CraftSim's saved average cost for a 5%-AH-cut break-even estimate, with lower ranks capped below real higher-rank listings; outputs without a saved cost are skipped.
-- `Buy Reagents` merchant button for outstanding vendor-sold CraftSim queue reagents, including inventory subtraction, stock/gold checks, and optional Auctionator shopping-list deduction.
-- A deduplicated notice when a CraftSim Auctionator shopping list contains vendor-sold reagents.
+- Vendor-plan splitting that removes vendor-sold reagents from CraftSim's Auctionator list, preserves them in a movable/resizable/collapsible Vendor Materials window, and reports remaining quantity and estimated cost.
+- `Buy Vendor Mats` merchant button for the separated items, including stock/gold checks, per-merchant fulfillment, persistent progress, and automatic completion cleanup.
 - Independent compatibility checks, debug/status reporting, module enable flags, and one-time legacy settings migration.
 
 The custom RecipeScan smart-restock rewrite was also reviewed. Stock CraftSim 26.1.10 already produces the same result from the same target and owned values, so the Enhancer does not install a fragile function replacement for it.
@@ -25,7 +25,7 @@ CraftSim is a required dependency. If CraftSim is disabled, WoW will not load Cr
 
 ## Settings and migration
 
-All Enhancer settings are stored in `CraftSimEnhancerDB`. The database has schema and migration versions, global settings, and a reserved profile root. It stores only Enhancer debug/module settings and scanner configuration; transient scan results are not saved.
+All Enhancer settings are stored in `CraftSimEnhancerDB`. The database has schema and migration versions, global settings, and a reserved profile root. It stores Enhancer debug/module settings, scanner configuration, and the unfinished Vendor Materials plan/window state; transient AH scan results are not saved.
 
 On first load, the Enhancer checks `CraftSimDB.auctionHouseScanDB.data`. If present, it copies fill quantity, per-crafter profession choices, target exclusions, and the configuration profession into new tables in `CraftSimEnhancerDB`. The old CraftSim value is not changed or deleted, and the migration does not repeat. CraftSim price overrides remain in CraftSim's normal `priceOverrideDB` because they are an upstream CraftSim feature.
 
@@ -41,7 +41,7 @@ Missing-output estimates read CraftSim's Last Crafting Cost database. Enable **U
 - `/cse reset` — show the required confirmation command.
 - `/cse reset confirm` — reset only CraftSim Enhancer settings.
 - `/cse scan` — open the scanner when the Auction House is open.
-- `/cse vendor` — refresh Vendor Buy when a merchant is open.
+- `/cse vendor` — reopen Vendor Materials or refresh Vendor Buy when a merchant is open.
 - `/cse module <scan|vendor|notice> <on|off>` — persist a module state for the next reload.
 
 ## Compatibility and debugging
@@ -56,6 +56,7 @@ Known risks:
 - Scanner export depends on CraftSim's internal price-override repository and UI refresh method.
 - The shopping-list notice securely hooks an internal CraftSim method.
 - Auctionator list/vendor APIs are optional but version-sensitive.
+- Active-search cleanup after vendor-plan splitting uses guarded Auctionator Shopping-frame/list-manager methods; the list entries are still removed if the optional search refresh is unavailable.
 - The Auction House launcher's tab integration follows the current Blizzard frame implementation.
 - Generated recipes, item metadata, vendor prices, PTR exclusions, and binding assumptions age as game data changes.
 
