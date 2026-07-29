@@ -2,6 +2,8 @@
 
 CraftSim Enhancer is a standalone companion addon for [CraftSim](https://www.curseforge.com/wow/addons/craftsim). It adds the CSE Recon Auction House pricing scanner, merchant reagent purchasing for the CraftSim queue, and vendor-reagent shopping-list notices without modifying CraftSim itself.
 
+CraftSim Enhancer is an independently developed project and is not affiliated with, maintained by, or endorsed by the CraftSim project or its authors. CraftSim is a required dependency, but CraftSim Enhancer is installed and maintained as its own standalone addon.
+
 The addon is currently developed for World of Warcraft Retail interface 120007 and CraftSim 26.1.10.
 
 ## Features
