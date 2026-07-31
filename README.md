@@ -14,7 +14,7 @@ CraftSim Enhancer is a standalone World of Warcraft Retail companion addon for [
 
 Other versions may work when their required capabilities remain compatible. Run `/cse status` after updating World of Warcraft or CraftSim; the addon reports untested versions and disables only a feature whose required interface is unavailable.
 
-A World of Warcraft 12.1 readiness checklist is included, but the tested interface marker will not change until the live client and generated item data have been validated.
+World of Warcraft 12.1 will not be marked as supported until the live client and generated item data have been validated.
 
 ## What it adds
 
@@ -161,12 +161,6 @@ When reporting a problem in [GitHub Issues](https://github.com/crystaltech/Craft
 - Any Lua error from BugSack/BugGrabber or `/console scriptErrors 1`.
 - The exported Missing AH report when the problem involves scanning.
 - Clear steps that reproduce the issue.
-
-## Development
-
-- [Architecture](CraftSimEnhancer/Docs/ARCHITECTURE.md)
-- [Testing checklist](CraftSimEnhancer/Docs/TESTING.md)
-- [Patch 12.1 readiness](CraftSimEnhancer/Docs/PATCH_12_1_READINESS.md)
 
 ## License and project independence
 
