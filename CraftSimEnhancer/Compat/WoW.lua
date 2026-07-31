@@ -60,11 +60,26 @@ function WoW:GetMerchantItems()
     return items
 end
 
+function WoW:GetBagItemCount(itemID)
+    if not C_Item or type(C_Item.GetItemCount) ~= "function" then
+        return nil, "C_Item.GetItemCount is unavailable"
+    end
+
+    local success, count = pcall(C_Item.GetItemCount, itemID, false, false, false, false)
+    if not success then
+        return nil, tostring(count)
+    end
+    return math.max(0, math.floor(tonumber(count) or 0))
+end
+
 function WoW:BuyMerchantItem(index, quantity)
     if not BuyMerchantItem then
         return nil, "BuyMerchantItem is unavailable"
     end
-    BuyMerchantItem(index, quantity)
+    local success, buyError = pcall(BuyMerchantItem, index, quantity)
+    if not success then
+        return nil, tostring(buyError)
+    end
     return true
 end
 

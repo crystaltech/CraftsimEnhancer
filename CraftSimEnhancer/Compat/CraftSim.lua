@@ -10,7 +10,7 @@ Compat.internalDependencies = {
     "CraftSim.CRAFTQ:GetItemCountFromCraftQueueCache",
     "CraftSim.CRAFTQ:CreateAuctionatorShoppingList",
     "CraftSim.DB.PRICE_OVERRIDE",
-    "CraftSim.DB.LAST_CRAFTING_COST (optional missing-output estimates)",
+    "CraftSim.DB.LAST_CRAFTING_COST (missing-output estimates and break-even tooltips)",
     "CraftSim.CONST profession metadata and shopping-list name",
     "CraftSim.MODULES:UpdateUI",
     "CraftSimTSM:GetMinBuyoutByItemID",
@@ -163,6 +163,38 @@ function Compat:GetLastCraftingCost(itemID, qualityID)
     return nil
 end
 
+---@param itemLink string?
+---@param itemID number?
+---@return number? cost
+---@return number? timestamp
+---@return string? crafterUID
+function Compat:GetLastCraftingCostForTooltip(itemLink, itemID)
+    local repository = self.craftSim and self.craftSim.DB and self.craftSim.DB.LAST_CRAFTING_COST
+    if not repository then
+        return nil
+    end
+
+    local getter
+    local key
+    if type(itemLink) == "string" and itemLink ~= "" and
+        type(repository.GetCheapestByItemLink) == "function" then
+        getter = repository.GetCheapestByItemLink
+        key = itemLink
+    elseif tonumber(itemID) and type(repository.GetCheapestByItemID) == "function" then
+        getter = repository.GetCheapestByItemID
+        key = tonumber(itemID)
+    else
+        return nil
+    end
+
+    local success, crafterUID, cost, timestamp = pcall(getter, repository, key)
+    cost = success and tonumber(cost) or nil
+    if not cost or cost <= 0 then
+        return nil
+    end
+    return cost, tonumber(timestamp), crafterUID
+end
+
 ---@param recipeID number
 ---@param qualityID number
 ---@param source string
@@ -229,6 +261,15 @@ function Compat:ValidateAuctionScanner()
     if not repository or type(repository.SaveGlobalOverride) ~= "function" or
         type(repository.SaveResultOverride) ~= "function" then
         return nil, "CraftSim price overrides are unavailable"
+    end
+    return true
+end
+
+function Compat:ValidateBreakEvenTooltip()
+    local repository = self.craftSim and self.craftSim.DB and self.craftSim.DB.LAST_CRAFTING_COST
+    if not repository or type(repository.GetCheapestByItemLink) ~= "function" or
+        type(repository.GetCheapestByItemID) ~= "function" then
+        return nil, "CraftSim last-crafting-cost repository is unavailable"
     end
     return true
 end

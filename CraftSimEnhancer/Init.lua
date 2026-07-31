@@ -36,7 +36,7 @@ local function PrintHelp()
     ns:Print("/cse debug - toggle debug output")
     ns:Print("/cse reset - show reset confirmation")
     ns:Print("/cse reset confirm - reset only CraftSim Enhancer settings")
-    ns:Print("/cse module <scan|vendor|notice> <on|off> - set a module for the next reload")
+    ns:Print("/cse module <scan|tooltip|vendor|notice> <on|off> - set a module for the next reload")
     ns:Print("/cse scan - open the Auction House scanner")
     ns:Print("/cse vendor - show Vendor Materials or refresh Vendor Buy at an open merchant")
 end
@@ -47,6 +47,7 @@ local function PrintStatus()
     ns:Print("CraftSim version: " .. tostring(ns.Compat.CraftSim:GetVersion()))
     ns:Print("CraftSim compatibility tested against: " .. ns.Compat.CraftSim.testedVersion)
     ns:Print("WoW interface: " .. tostring(ns.Compat.WoW:GetInterfaceVersion()))
+    ns:Print("WoW interface tested against: " .. tostring(ns.Compat.WoW.testedInterface))
     ns:Print("Debug: " .. tostring(ns.Debug:IsEnabled()))
     ns:Print("Migration: " .. ns.Config:GetMigrationStatus())
     for _, name in ipairs(ns.ModuleOrder) do
@@ -55,11 +56,29 @@ local function PrintStatus()
         ns:Print(name .. ": enabled=" .. tostring(status.enabled) .. ", " .. summary)
     end
     if next(ns.warnings) == nil then
-        ns:Print("Compatibility failures: none")
+        ns:Print("Compatibility warnings: none")
     else
         for key, warning in pairs(ns.warnings) do
-            ns:Print("Compatibility failure [" .. tostring(key) .. "]: " .. tostring(warning))
+            ns:Print("Compatibility warning [" .. tostring(key) .. "]: " .. tostring(warning))
         end
+    end
+end
+
+local function WarnForUntestedVersions()
+    local interfaceVersion = tonumber(ns.Compat.WoW:GetInterfaceVersion())
+    local testedInterface = tonumber(ns.Compat.WoW.testedInterface)
+    if interfaceVersion and testedInterface and interfaceVersion ~= testedInterface then
+        ns:WarnOnce("wow-interface-version",
+            "Running WoW interface " .. tostring(interfaceVersion) .. "; tested against " ..
+            tostring(testedInterface) .. ". Capability checks passed, but complete the compatibility checklist.")
+    end
+
+    local craftSimVersion = tostring(ns.Compat.CraftSim:GetVersion())
+    local testedCraftSimVersion = tostring(ns.Compat.CraftSim.testedVersion)
+    if craftSimVersion ~= "unknown" and craftSimVersion ~= testedCraftSimVersion then
+        ns:WarnOnce("craftsim-version",
+            "Running CraftSim " .. craftSimVersion .. "; tested against " .. testedCraftSimVersion ..
+            ". Capability checks passed, but internal behavior may have changed.")
     end
 end
 
@@ -87,6 +106,7 @@ local function HandleSlashCommand(message)
         local shortName, value = string.match(remainder, "^(%S+)%s+(%S+)$")
         local moduleNames = {
             scan = "AuctionHouseScan",
+            tooltip = "BreakEvenTooltip",
             vendor = "VendorBuy",
             notice = "VendorShoppingListNotice",
         }
@@ -96,7 +116,7 @@ local function HandleSlashCommand(message)
             ns:Print(moduleName .. " will be " .. (value == "on" and "enabled" or "disabled") ..
                 " after /reload.")
         else
-            ns:Print("Usage: /cse module <scan|vendor|notice> <on|off>")
+            ns:Print("Usage: /cse module <scan|tooltip|vendor|notice> <on|off>")
         end
     elseif command == "scan" then
         local module = ns.Modules.AuctionHouseScan
@@ -133,6 +153,7 @@ eventFrame:SetScript("OnEvent", function(_, _, loadedAddon)
             ns.ModuleStatus[name].error = compatibilityError or "CraftSim unavailable"
         end
     else
+        WarnForUntestedVersions()
         for _, name in ipairs(ns.ModuleOrder) do
             InitializeModule(name)
         end

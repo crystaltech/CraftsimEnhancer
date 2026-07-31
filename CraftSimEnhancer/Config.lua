@@ -12,6 +12,7 @@ local DEFAULTS = {
         debug = false,
         modules = {
             AuctionHouseScan = true,
+            BreakEvenTooltip = true,
             VendorBuy = true,
             VendorShoppingListNotice = true,
         },

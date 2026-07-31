@@ -2,11 +2,18 @@
 
 Enable `/console scriptErrors 1` and BugSack/BugGrabber if installed.
 
+Before in-game testing, run these checks from the repository root:
+
+- `lua CraftSimEnhancer/Tests/test_break_even_tooltip.lua`
+- `lua CraftSimEnhancer/Tests/test_auction_house_scan.lua`
+- `lua CraftSimEnhancer/Tests/test_vendor_buy.lua`
+
 ## Installation and startup
 
 - Install stock CraftSim and `CraftSimEnhancer` as sibling addon folders.
 - First login with both enabled: verify one Enhancer load message and no Lua error.
-- Run `/cse status`; confirm the displayed version matches the TOC, CraftSim 26.1.10 (or the installed version), current interface, all enabled modules initialized, migration result, and no compatibility failures.
+- Run `/cse status`; confirm the displayed version matches the TOC, CraftSim 26.1.10 (or the installed version), current interface, all enabled modules initialized, migration result, and no unexpected compatibility warnings.
+- On a new WoW or CraftSim version, verify the non-blocking untested-version warning appears and follow `Docs/PATCH_12_1_READINESS.md` before updating the tested version markers.
 - Run `/reload`; verify controls and hooks are not duplicated.
 - Disable CraftSim while leaving CraftSim Enhancer selected. Because `## RequiredDeps: CraftSim` is intentional, WoW should refuse to load the Enhancer; `/cse` will not be registered. Re-enable CraftSim.
 - Test a fresh install with no `CraftSimDB.auctionHouseScanDB`; status should say no legacy settings were found.
@@ -36,6 +43,7 @@ Enable `/console scriptErrors 1` and BugSack/BugGrabber if installed.
 - Confirm missing outputs are labeled as estimates and use `floor(average cost / 0.95)`, not 1 copper.
 - Confirm a missing lower-rank estimate is capped to one copper below the cheapest real higher-rank result.
 - Confirm an output without a saved CraftSim cost is skipped and any legacy 1-copper Enhancer override is removed.
+- Hover a supported crafted output with a saved CraftSim cost. Confirm the tooltip shows `CSE Break-even (5% AH)` for the exact item rank and omits the line when the cost is unavailable.
 - Close the Auction House during a scan and confirm clean cancellation.
 - Enter/leave combat before opening the Auction House and verify no blocked-action or taint error.
 
@@ -43,11 +51,14 @@ Enable `/console scriptErrors 1` and BugSack/BugGrabber if installed.
 
 - Build a CraftSim queue with normal, optional, required-selectable, self-crafted, order-provided, soulbound, and vendor-sold reagents.
 - Create the Auctionator CraftSim list; verify vendor reagents are immediately removed while normal AH reagents remain.
+- Verify the split is all-or-nothing: the automated test confirms an unmatched vendor entry leaves the original Auctionator list unchanged.
 - Confirm the reminder appears and the Vendor Materials window lists each removed item, remaining quantity, and estimated cost.
 - Move, resize, collapse, close, and reopen the window with `/cse vendor`; reload and verify its position, expanded size, state, and unfinished plan persist.
 - Visit a merchant that sells none, some, and all outstanding vendor reagents.
 - Verify the button count, enabled state, tooltip, estimated gold cost, limited stock, and insufficient-gold behavior.
 - Click `Buy Vendor Mats` and confirm the correct quantities are bought from that merchant only.
+- Immediately after clicking, verify the button reads `Confirming Purchase...` and cannot be clicked again.
+- Confirm the plan decreases only after the purchased items appear in bags. With insufficient bag space or a partial purchase, verify the unreceived quantity remains planned.
 - Verify purchased rows disappear from Vendor Materials, items sold elsewhere remain, totals update, and the window automatically closes after the final purchase.
 - With Auctionator's automatic list search enabled, create the list while its Shopping tab is visible and confirm removed vendor items do not remain in the active results.
 - Verify extended-cost and unusable merchant rows are not auto-purchased.

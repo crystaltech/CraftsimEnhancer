@@ -11,6 +11,13 @@ function Notice:ShowForCurrentQueue()
     end
 
     local summary = vendorBuy:CreateVendorPlanFromCurrentQueue()
+    if summary and summary.separationFailed then
+        StaticPopup_Show(POPUP_KEY,
+            "Vendor materials were NOT removed from the Auctionator list.\n\n" ..
+            tostring(summary.error or "The list could not be safely updated.") ..
+            "\n\nReview the shopping list before buying from the Auction House.")
+        return
+    end
     if not summary or (tonumber(summary.itemCount) or 0) == 0 then
         return
     end

@@ -9,8 +9,9 @@ The addon was developed against CraftSim 26.1.10 and World of Warcraft interface
 ## Extracted features
 
 - Auction House scanner backed by the supplied generated Midnight recipe/item data, with profession filters, presets, missing-result reporting, fill/outlier pricing, lowest-output pricing, vendor fixed prices, TSM fallback, and CraftSim price-override export. Outputs with no auctions use CraftSim's saved average cost for a 5%-AH-cut break-even estimate, with lower ranks capped below real higher-rank listings; outputs without a saved cost are skipped.
+- Exact-rank item tooltips show **CSE Break-even (5% AH)** when CraftSim has a saved crafting cost for a supported crafted output. The line is hidden when no cost is available and does not present a capped lower-rank override as true break-even.
 - Vendor-plan splitting that removes vendor-sold reagents from CraftSim's Auctionator list, preserves them in a movable/resizable/collapsible Vendor Materials window, and reports remaining quantity and estimated cost.
-- `Buy Vendor Mats` merchant button for the separated items, including stock/gold checks, per-merchant fulfillment, persistent progress, and automatic completion cleanup.
+- `Buy Vendor Mats` merchant button for the separated items, including stock/gold checks, bag-confirmed fulfillment, persistent progress, and automatic completion cleanup.
 - Independent compatibility checks, debug/status reporting, module enable flags, and one-time legacy settings migration.
 
 The custom RecipeScan smart-restock rewrite was also reviewed. Stock CraftSim 26.1.10 already produces the same result from the same target and owned values, so the Enhancer does not install a fragile function replacement for it.
@@ -44,7 +45,7 @@ Missing-output estimates read CraftSim's Last Crafting Cost database. Enable **U
 - `/cse reset confirm` — reset only CraftSim Enhancer settings.
 - `/cse scan` — open the scanner when the Auction House is open.
 - `/cse vendor` — reopen Vendor Materials or refresh Vendor Buy when a merchant is open.
-- `/cse module <scan|vendor|notice> <on|off>` — persist a module state for the next reload.
+- `/cse module <scan|tooltip|vendor|notice> <on|off>` — persist a module state for the next reload.
 
 ## Compatibility and debugging
 

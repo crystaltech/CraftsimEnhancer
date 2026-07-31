@@ -3,7 +3,7 @@
 ## Category: Professions
 ## Notes: Adds custom enhancements and additional features to CraftSim.
 ## Author: Crystal_Tech
-## Version: 1.2.0
+## Version: 1.2.1
 ## RequiredDeps: CraftSim
 ## SavedVariables: CraftSimEnhancerDB
 
@@ -26,7 +26,14 @@ Data/GeneratedRecipes/Jewelcrafting.lua
 Data/GeneratedRecipes/Leatherworking.lua
 Data/GeneratedRecipes/Tailoring.lua
 
+Modules/BreakEvenTooltip.lua
 Modules/AuctionHouseScan.lua
+Modules/AuctionHouseScan/UI.lua
+Modules/AuctionHouseScan/ConfigurationUI.lua
+Modules/AuctionHouseScan/Targets.lua
+Modules/AuctionHouseScan/Query.lua
+Modules/AuctionHouseScan/Pricing.lua
+Modules/AuctionHouseScan/Lifecycle.lua
 Modules/VendorBuy.lua
 Modules/VendorShoppingListNotice.lua
 

@@ -2,7 +2,6 @@ local addonName, ns = ...
 
 local Compat = ns.Compat.CraftSim
 local WoW = ns.Compat.WoW
-local Auctionator = _G.Auctionator
 local VendorBuy = {}
 local EVENTS = { "MERCHANT_SHOW", "MERCHANT_UPDATE", "MERCHANT_CLOSED", "BAG_UPDATE_DELAYED" }
 local PLAN_WINDOW_WIDTH = 410
@@ -14,10 +13,62 @@ local PLAN_MIN_WIDTH = 330
 local PLAN_MAX_WIDTH = 720
 local PLAN_MIN_EXPANDED_HEIGHT = PLAN_HEADER_HEIGHT + PLAN_FOOTER_HEIGHT + PLAN_ROW_HEIGHT + 4
 local PLAN_MAX_HEIGHT = 520
+local PURCHASE_CONFIRM_DELAY_SECONDS = 1.25
 
 VendorBuy.button = nil
 VendorBuy.planFrame = nil
 VendorBuy.planRows = {}
+VendorBuy.pendingPurchases = nil
+VendorBuy.purchaseConfirmToken = 0
+
+local function NormalizeSearchName(value)
+    if type(value) ~= "string" then
+        return nil
+    end
+    return string.lower((value:gsub("^%s+", ""):gsub("%s+$", "")))
+end
+
+local function GetAuctionatorAPI()
+    local auctionator = _G.Auctionator
+    return auctionator and auctionator.API and auctionator.API.v1
+end
+
+local function CopyEntryMap(source)
+    local copy = {}
+    for key, value in pairs(source or {}) do
+        copy[key] = value
+    end
+    return copy
+end
+
+local function CountEntries(source)
+    local count = 0
+    for _ in pairs(source or {}) do
+        count = count + 1
+    end
+    return count
+end
+
+local function StringListsMatch(first, second)
+    if type(first) ~= "table" or type(second) ~= "table" or #first ~= #second then
+        return false
+    end
+
+    local counts = {}
+    for _, value in ipairs(first) do
+        counts[value] = (counts[value] or 0) + 1
+    end
+    for _, value in ipairs(second) do
+        if not counts[value] then
+            return false
+        end
+        counts[value] = counts[value] - 1
+        if counts[value] == 0 then
+            counts[value] = nil
+        end
+    end
+    return next(counts) == nil
+end
 
 ---@class CraftSim.VendorBuy.NeededItem
 ---@field itemName string?
@@ -38,7 +89,7 @@ function VendorBuy:GetVendorInfo(itemID)
         return true, unitPrice and unitPrice > 0 and unitPrice or nil
     end
 
-    local api = Auctionator and Auctionator.API and Auctionator.API.v1
+    local api = GetAuctionatorAPI()
     if api and type(api.GetVendorPriceByItemID) == "function" then
         local success, vendorPrice = pcall(api.GetVendorPriceByItemID, addonName, itemID)
         vendorPrice = success and tonumber(vendorPrice) or nil
@@ -192,7 +243,7 @@ end
 ---@param plannedItems table<ItemID, table>
 ---@return number? itemID
 function VendorBuy:MatchShoppingListItem(searchString, plannedItems)
-    local api = Auctionator and Auctionator.API and Auctionator.API.v1
+    local api = GetAuctionatorAPI()
     if not api or type(api.ConvertFromSearchString) ~= "function" then
         return nil
     end
@@ -202,9 +253,13 @@ function VendorBuy:MatchShoppingListItem(searchString, plannedItems)
         return nil
     end
 
-    local searchName = string.lower(terms.searchString)
+    local searchName = NormalizeSearchName(terms.searchString)
     for itemID, info in pairs(plannedItems) do
-        if type(info.itemName) == "string" and string.lower(info.itemName) == searchName then
+        local itemName = info.itemName
+        if type(itemName) ~= "string" and C_Item and type(C_Item.GetItemNameByID) == "function" then
+            itemName = C_Item.GetItemNameByID(itemID)
+        end
+        if NormalizeSearchName(itemName) == searchName then
             return tonumber(itemID)
         end
     end
@@ -218,7 +273,8 @@ function VendorBuy:RefreshAuctionatorSearch(shoppingListName)
 
     C_Timer.After(0, function()
         local shoppingFrame = _G.AuctionatorShoppingFrame
-        local listManager = Auctionator and Auctionator.Shopping and Auctionator.Shopping.ListManager
+        local auctionator = _G.Auctionator
+        local listManager = auctionator and auctionator.Shopping and auctionator.Shopping.ListManager
         if not shoppingFrame or not shoppingFrame:IsShown() or not listManager or
             type(shoppingFrame.StopSearch) ~= "function" or type(shoppingFrame.DoSearch) ~= "function" or
             type(listManager.GetIndexForName) ~= "function" or type(listManager.GetByName) ~= "function" then
@@ -248,38 +304,64 @@ end
 ---@param plannedItems table<ItemID, table>
 ---@return table<ItemID, table> removedItems
 ---@return string? resolvedListName
+---@return table<ItemID, table> unmatchedItems
+---@return string? separationError
 function VendorBuy:RemovePlannedItemsFromAuctionator(plannedItems)
-    local api = Auctionator and Auctionator.API and Auctionator.API.v1
-    if not api or type(api.DeleteShoppingListItem) ~= "function" or
+    local api = GetAuctionatorAPI()
+    if not api or type(api.CreateShoppingList) ~= "function" or
         type(api.ConvertFromSearchString) ~= "function" then
-        return {}
+        return {}, nil, CopyEntryMap(plannedItems), "Auctionator shopping-list replacement APIs are unavailable."
     end
 
     local baseListName = Compat:GetAuctionatorShoppingListName()
     if not baseListName then
-        return {}
+        return {}, nil, CopyEntryMap(plannedItems), "CraftSim's Auctionator shopping-list name is unavailable."
     end
     local shoppingListName, shoppingListItems = self:FindAuctionatorShoppingList(baseListName)
     if not shoppingListName or not shoppingListItems then
-        return {}
+        return {}, nil, CopyEntryMap(plannedItems), "The CraftSim Auctionator shopping list could not be found."
     end
 
     local removedItems = {}
+    local remainingSearches = {}
     for _, searchString in ipairs(shoppingListItems) do
         local itemID = self:MatchShoppingListItem(searchString, plannedItems)
-        if itemID and not removedItems[itemID] then
-            local success = pcall(api.DeleteShoppingListItem, addonName, shoppingListName, searchString)
-            if success then
-                removedItems[itemID] = plannedItems[itemID]
-            end
+        if itemID then
+            removedItems[itemID] = plannedItems[itemID]
+        else
+            table.insert(remainingSearches, searchString)
         end
     end
 
-    if next(removedItems) then
-        Compat:ResetQuickBuyCache()
-        self:RefreshAuctionatorSearch(shoppingListName)
+    local unmatchedItems = {}
+    for itemID, info in pairs(plannedItems) do
+        if not removedItems[itemID] then
+            unmatchedItems[itemID] = info
+        end
     end
-    return removedItems, shoppingListName
+    if next(unmatchedItems) then
+        return {}, shoppingListName, unmatchedItems,
+            string.format("Only %d of %d vendor entries matched the Auctionator list; nothing was removed.",
+                CountEntries(removedItems), CountEntries(plannedItems))
+    end
+
+    local replaced, replaceError = pcall(api.CreateShoppingList, addonName, shoppingListName, remainingSearches)
+    if not replaced then
+        pcall(api.CreateShoppingList, addonName, shoppingListName, shoppingListItems)
+        return {}, shoppingListName, CopyEntryMap(plannedItems),
+            "Auctionator could not replace the shopping list: " .. tostring(replaceError)
+    end
+
+    local verified, currentItems = self:GetAuctionatorShoppingListItems(shoppingListName)
+    if not verified or not StringListsMatch(currentItems, remainingSearches) then
+        pcall(api.CreateShoppingList, addonName, shoppingListName, shoppingListItems)
+        return {}, shoppingListName, CopyEntryMap(plannedItems),
+            "Auctionator did not confirm the vendor entries were removed; the original list was restored."
+    end
+
+    Compat:ResetQuickBuyCache()
+    self:RefreshAuctionatorSearch(shoppingListName)
+    return removedItems, shoppingListName, {}, nil
 end
 
 ---@return table? summary
@@ -302,12 +384,22 @@ function VendorBuy:CreateVendorPlanFromCurrentQueue()
         return nil
     end
 
-    local removedItems, shoppingListName = self:RemovePlannedItemsFromAuctionator(plannedItems)
+    local removedItems, shoppingListName, unmatchedItems, separationError =
+        self:RemovePlannedItemsFromAuctionator(plannedItems)
     if not next(removedItems) then
         ns.Config.VendorPlan:Clear()
         self:UpdatePlanWindow()
-        ns:WarnOnce("vendor-plan-split", "Vendor materials could not be separated from the Auctionator list.")
-        return nil
+        local failureText = separationError or "Vendor materials could not be separated from the Auctionator list."
+        ns:WarnOnce("vendor-plan-split", failureText)
+        return {
+            itemCount = 0,
+            totalQuantity = 0,
+            estimatedCost = 0,
+            shoppingListName = shoppingListName,
+            separationFailed = true,
+            unmatchedCount = CountEntries(unmatchedItems),
+            error = failureText,
+        }
     end
 
     ns.Config.VendorPlan:Replace(removedItems, shoppingListName)
@@ -367,6 +459,7 @@ function VendorBuy:GetPurchasableItems()
                     neededQuantity = math.min(neededInfo.quantity, quantity),
                     purchaseQuantity = purchaseQuantity,
                     price = merchantInfo.price or 0,
+                    stackCount = merchantInfo.stackCount,
                 }
                 totalQuantity = totalQuantity + math.min(neededInfo.quantity, quantity)
                 totalCost = totalCost + (merchantInfo.price or 0) * purchaseQuantity
@@ -381,11 +474,12 @@ end
 ---@return boolean success
 ---@return string[]? shoppingListItems
 function VendorBuy:GetAuctionatorShoppingListItems(shoppingListName)
-    if not Auctionator or not Auctionator.API or not Auctionator.API.v1 or not Auctionator.API.v1.GetShoppingListItems then
+    local api = GetAuctionatorAPI()
+    if not api or type(api.GetShoppingListItems) ~= "function" then
         return false, nil
     end
 
-    local success, result = pcall(Auctionator.API.v1.GetShoppingListItems, addonName, shoppingListName)
+    local success, result = pcall(api.GetShoppingListItems, addonName, shoppingListName)
     if success then
         return true, result
     end
@@ -395,9 +489,10 @@ end
 
 ---@param purchasableItems table<ItemID, { quantity: number }>
 function VendorBuy:DeductAuctionatorShoppingListItems(purchasableItems)
-    if not Auctionator or not Auctionator.API or not Auctionator.API.v1 or
-        not Auctionator.API.v1.ConvertToSearchString or not Auctionator.API.v1.ConvertFromSearchString or
-        not Auctionator.API.v1.AlterShoppingListItem or not Auctionator.API.v1.DeleteShoppingListItem then
+    local api = GetAuctionatorAPI()
+    if not api or type(api.ConvertToSearchString) ~= "function" or
+        type(api.ConvertFromSearchString) ~= "function" or type(api.AlterShoppingListItem) ~= "function" or
+        type(api.DeleteShoppingListItem) ~= "function" then
         return
     end
 
@@ -430,22 +525,22 @@ function VendorBuy:DeductAuctionatorShoppingListItems(purchasableItems)
                     isExact = true,
                     tier = itemQualityID,
                 }
-                local searchString = Auctionator.API.v1.ConvertToSearchString(addonName, searchTerms)
+                local searchString = api.ConvertToSearchString(addonName, searchTerms)
                 local oldSearchString = ns.Find(shoppingListItems, function(r)
                     return ns.StringStartsWith(r, searchString)
                 end)
 
                 if oldSearchString then
-                    local oldTerms = Auctionator.API.v1.ConvertFromSearchString(addonName, oldSearchString)
+                    local oldTerms = api.ConvertFromSearchString(addonName, oldSearchString)
                     local newQuantity = (oldTerms.quantity or 0) - (boughtInfo.quantity or 0)
 
                     if newQuantity > 0 then
                         searchTerms.quantity = newQuantity
-                        local newSearchString = Auctionator.API.v1.ConvertToSearchString(addonName, searchTerms)
-                        Auctionator.API.v1.AlterShoppingListItem(addonName, shoppingListName, oldSearchString,
+                        local newSearchString = api.ConvertToSearchString(addonName, searchTerms)
+                        api.AlterShoppingListItem(addonName, shoppingListName, oldSearchString,
                             newSearchString)
                     else
-                        Auctionator.API.v1.DeleteShoppingListItem(addonName, shoppingListName, oldSearchString)
+                        api.DeleteShoppingListItem(addonName, shoppingListName, oldSearchString)
                     end
                 end
             end
@@ -489,7 +584,74 @@ function VendorBuy:ConsumeVendorPlanItems(purchasedItems)
     return true
 end
 
+function VendorBuy:SchedulePurchaseReconciliation(seconds)
+    if not self.pendingPurchases or not C_Timer or type(C_Timer.After) ~= "function" then
+        return
+    end
+
+    self.purchaseConfirmToken = self.purchaseConfirmToken + 1
+    local token = self.purchaseConfirmToken
+    C_Timer.After(seconds or PURCHASE_CONFIRM_DELAY_SECONDS, function()
+        if VendorBuy.pendingPurchases and VendorBuy.purchaseConfirmToken == token then
+            VendorBuy:ReconcilePendingPurchases()
+        end
+    end)
+end
+
+function VendorBuy:ReconcilePendingPurchases()
+    local pendingPurchases = self.pendingPurchases
+    if not pendingPurchases then
+        return false
+    end
+
+    self.pendingPurchases = nil
+    self.purchaseConfirmToken = self.purchaseConfirmToken + 1
+
+    local confirmedItems = {}
+    local confirmedQuantity = 0
+    local confirmedCost = 0
+    local unconfirmedQuantity = 0
+    for itemID, pendingInfo in pairs(pendingPurchases) do
+        local currentCount = WoW:GetBagItemCount(itemID)
+        local addedQuantity = currentCount and
+            math.max(0, currentCount - (tonumber(pendingInfo.beforeCount) or 0)) or 0
+        local neededQuantity = math.max(0, tonumber(pendingInfo.neededQuantity) or 0)
+        local fulfilledQuantity = math.min(neededQuantity, addedQuantity)
+        if fulfilledQuantity > 0 then
+            confirmedItems[itemID] = {
+                neededQuantity = fulfilledQuantity,
+                quantity = fulfilledQuantity,
+            }
+            confirmedQuantity = confirmedQuantity + fulfilledQuantity
+            local stackCount = math.max(1, tonumber(pendingInfo.stackCount) or 1)
+            confirmedCost = confirmedCost + math.ceil(fulfilledQuantity / stackCount) *
+                (tonumber(pendingInfo.price) or 0)
+        end
+        unconfirmedQuantity = unconfirmedQuantity + math.max(0, neededQuantity - fulfilledQuantity)
+    end
+
+    if next(confirmedItems) then
+        if not self:ConsumeVendorPlanItems(confirmedItems) then
+            self:DeductAuctionatorShoppingListItems(confirmedItems)
+        end
+        ns:Print("Confirmed " .. tostring(confirmedQuantity) .. " vendor materials purchased for " ..
+            WoW:FormatMoney(confirmedCost) .. ".")
+    end
+    if unconfirmedQuantity > 0 then
+        ns:Print(tostring(unconfirmedQuantity) ..
+            " requested vendor materials were not received and remain in the Vendor Materials plan.")
+    end
+
+    self:UpdateButton()
+    return confirmedQuantity > 0, confirmedQuantity, unconfirmedQuantity
+end
+
 function VendorBuy:BuyQueuedVendorItems()
+    if self.pendingPurchases then
+        ns:Print("A vendor purchase is still being confirmed.")
+        return
+    end
+
     local purchasableItems, totalQuantity, totalCost = self:GetPurchasableItems()
     if totalQuantity == 0 then
         ns:Print("No planned vendor materials are available from this merchant.")
@@ -501,20 +663,44 @@ function VendorBuy:BuyQueuedVendorItems()
         return
     end
 
-    for _, info in pairs(purchasableItems) do
-        ns.Debug:Log("Buying vendor item: " .. tostring(info.name) .. " x" .. tostring(info.quantity))
-        local bought, buyError = WoW:BuyMerchantItem(info.index, info.purchaseQuantity)
-        if not bought then
-            ns:WarnOnce("vendor-buy-api", buyError)
-            return
+    local pendingPurchases = {}
+    local requestedQuantity = 0
+    local requestedCost = 0
+    for itemID, info in pairs(purchasableItems) do
+        local beforeCount, countError = WoW:GetBagItemCount(itemID)
+        if beforeCount == nil then
+            ns:WarnOnce("vendor-buy-count", "Could not confirm vendor purchases: " .. tostring(countError))
+        else
+            ns.Debug:Log("Buying vendor item: " .. tostring(info.name) .. " x" .. tostring(info.quantity))
+            local bought, buyError = WoW:BuyMerchantItem(info.index, info.purchaseQuantity)
+            if not bought then
+                ns:WarnOnce("vendor-buy-api", buyError)
+            else
+                pendingPurchases[itemID] = {
+                    beforeCount = beforeCount,
+                    neededQuantity = info.neededQuantity,
+                    requestedQuantity = info.quantity,
+                    stackCount = info.stackCount,
+                    price = info.price,
+                    name = info.name,
+                }
+                requestedQuantity = requestedQuantity + (tonumber(info.neededQuantity) or 0)
+                requestedCost = requestedCost + (tonumber(info.price) or 0) *
+                    (tonumber(info.purchaseQuantity) or 0)
+            end
         end
     end
 
-    if not self:ConsumeVendorPlanItems(purchasableItems) then
-        self:DeductAuctionatorShoppingListItems(purchasableItems)
+    if not next(pendingPurchases) then
+        ns:Print("No vendor purchase requests could be sent.")
+        return
     end
 
-    ns:Print("Bought " .. tostring(totalQuantity) .. " vendor materials for " .. WoW:FormatMoney(totalCost) .. ".")
+    self.pendingPurchases = pendingPurchases
+    self:SchedulePurchaseReconciliation()
+    self:UpdateButton()
+    ns:Print("Requested " .. tostring(requestedQuantity) .. " vendor materials for " ..
+        WoW:FormatMoney(requestedCost) .. "; waiting for bag confirmation.")
 end
 
 function VendorBuy:SavePlanWindowPosition()
@@ -894,13 +1080,16 @@ function VendorBuy:UpdateButton()
     self.button:SetFrameLevel((MerchantFrame:GetFrameLevel() or 1) + 30)
     self:PositionButton()
     self.button:Show()
-    self.button:SetEnabled(totalQuantity > 0)
-    self.button:SetText("Buy Vendor Mats (" .. tostring(totalQuantity) .. ")")
+    local purchasePending = self.pendingPurchases ~= nil
+    self.button:SetEnabled(totalQuantity > 0 and not purchasePending)
+    self.button:SetText(purchasePending and "Confirming Purchase..." or
+        ("Buy Vendor Mats (" .. tostring(totalQuantity) .. ")"))
 
-    self.button.tooltipText = totalQuantity > 0
+    self.button.tooltipText = purchasePending and "Waiting for purchased materials to appear in your bags." or
+        (totalQuantity > 0
         and ("Buy materials from the CSE vendor plan that this merchant sells.\nAvailable here: " ..
             tostring(totalQuantity) .. "\nEstimated cost: " .. WoW:FormatMoney(totalCost))
-        or "No planned vendor materials are available from this merchant."
+        or "No planned vendor materials are available from this merchant.")
 end
 
 function VendorBuy:PositionButton()
@@ -968,7 +1157,11 @@ function VendorBuy:MERCHANT_CLOSED()
 end
 
 function VendorBuy:BAG_UPDATE_DELAYED()
-    self:UpdateButton()
+    if self.pendingPurchases then
+        self:SchedulePurchaseReconciliation(0.10)
+    else
+        self:UpdateButton()
+    end
 end
 
 function VendorBuy:Open()
@@ -982,7 +1175,8 @@ end
 
 function VendorBuy:CanInitialize()
     if not C_MerchantFrame or not C_MerchantFrame.GetItemInfo or not GetMerchantNumItems or
-        not GetMerchantItemLink or not BuyMerchantItem then
+        not GetMerchantItemLink or not BuyMerchantItem or not C_Item or type(C_Item.GetItemCount) ~= "function" or
+        not C_Timer or type(C_Timer.After) ~= "function" then
         return nil, "required merchant APIs are unavailable"
     end
     return Compat:ValidateVendorBuy()
