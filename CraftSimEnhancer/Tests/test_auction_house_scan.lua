@@ -311,6 +311,22 @@ local function testMissingResultBreakEvenPricing()
     assertEqual(capped, false, "missing crafting cost cap flag")
 end
 
+local function testInputPricingUsesTwentyUnitFill()
+    namespace.Config.AuctionHouseScan.GetFillQuantity = function()
+        return 20
+    end
+    local price, quantityUsed, listedQuantity, trimmedUnits = Scanner:CalculateTrimmedFillPrice({
+        { unitPrice = 100, quantity = 10 },
+        { unitPrice = 200, quantity = 10 },
+        { unitPrice = 300, quantity = 10 },
+    })
+
+    assertEqual(price, 150, "twenty-unit fill price")
+    assertEqual(quantityUsed, 20, "twenty-unit fill quantity")
+    assertEqual(listedQuantity, 20, "listings consumed through fill")
+    assertEqual(trimmedUnits, 0, "fill outliers trimmed")
+end
+
 local function testMissingLowerRankUsesCheapestRealBetterRank()
     Scanner.priceResults = {
         {
@@ -570,6 +586,7 @@ testEquipmentStartsBroadSellSearch()
 testAlternateEmptyCacheCannotCompleteItemSearch()
 testDirectEmptyItemResultGetsConfirmationRetry()
 testMissingResultBreakEvenPricing()
+testInputPricingUsesTwentyUnitFill()
 testMissingLowerRankUsesCheapestRealBetterRank()
 testCraftSimCostCompatibilityFallbacks()
 testCraftSimTooltipCostCompatibility()

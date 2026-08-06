@@ -2,8 +2,8 @@ local _, ns = ...
 
 local Config = ns.Config
 local CURRENT_SCHEMA_VERSION = 2
-local CURRENT_MIGRATION_VERSION = 1
-local DEFAULT_FILL_QUANTITY = 100
+local CURRENT_MIGRATION_VERSION = 2
+local DEFAULT_FILL_QUANTITY = 20
 
 local DEFAULTS = {
     schemaVersion = CURRENT_SCHEMA_VERSION,
@@ -94,34 +94,42 @@ function Config:Initialize()
 end
 
 function Config:RunMigrations()
-    if (tonumber(self.db.migrationVersion) or 0) >= CURRENT_MIGRATION_VERSION then
+    local migrationVersion = tonumber(self.db.migrationVersion) or 0
+    if migrationVersion >= CURRENT_MIGRATION_VERSION then
         self.migrationStatus = self.db.migrationStatus or "complete"
         return
     end
 
-    local legacy = type(CraftSimDB) == "table" and CraftSimDB.auctionHouseScanDB
-    legacy = type(legacy) == "table" and legacy.data or nil
-    if type(legacy) == "table" then
-        local target = self.db.global.auctionHouseScan
-        target.fillQuantity = math.max(5, math.min(1000,
-            math.floor(tonumber(legacy.fillQuantity) or DEFAULT_FILL_QUANTITY)))
-        target.selectedProfessionsByCrafter = CopyNestedBooleanMaps(legacy.selectedProfessionsByCrafter)
-        target.professionSelectionInitializedByCrafter = CopyBooleanMap(
-            legacy.professionSelectionInitializedByCrafter)
-        target.skippedTargets = CopyBooleanMap(legacy.skippedTargets)
-        target.configProfession = type(legacy.configProfession) == "string" and legacy.configProfession or "ALL"
-        target.migratedGlobalSelectedProfessions = legacy.migratedGlobalSelectedProfessions == true
+    if migrationVersion < 1 then
+        local legacy = type(CraftSimDB) == "table" and CraftSimDB.auctionHouseScanDB
+        legacy = type(legacy) == "table" and legacy.data or nil
+        if type(legacy) == "table" then
+            local target = self.db.global.auctionHouseScan
+            target.selectedProfessionsByCrafter = CopyNestedBooleanMaps(legacy.selectedProfessionsByCrafter)
+            target.professionSelectionInitializedByCrafter = CopyBooleanMap(
+                legacy.professionSelectionInitializedByCrafter)
+            target.skippedTargets = CopyBooleanMap(legacy.skippedTargets)
+            target.configProfession = type(legacy.configProfession) == "string" and legacy.configProfession or "ALL"
+            target.migratedGlobalSelectedProfessions = legacy.migratedGlobalSelectedProfessions == true
 
-        -- Older builds stored one global profession map. Preserve it for the current character.
-        if next(target.selectedProfessionsByCrafter) == nil and type(legacy.selectedProfessions) == "table" then
-            local crafterUID = ns.Compat.WoW:GetCrafterUID()
-            target.selectedProfessionsByCrafter[crafterUID] = CopyBooleanMap(legacy.selectedProfessions)
-            target.professionSelectionInitializedByCrafter[crafterUID] = true
-            target.migratedGlobalSelectedProfessions = true
+            -- Older builds stored one global profession map. Preserve it for the current character.
+            if next(target.selectedProfessionsByCrafter) == nil and type(legacy.selectedProfessions) == "table" then
+                local crafterUID = ns.Compat.WoW:GetCrafterUID()
+                target.selectedProfessionsByCrafter[crafterUID] = CopyBooleanMap(legacy.selectedProfessions)
+                target.professionSelectionInitializedByCrafter[crafterUID] = true
+                target.migratedGlobalSelectedProfessions = true
+            end
+            self.migrationStatus = "legacy settings copied"
+        else
+            self.migrationStatus = "no legacy settings found"
         end
-        self.migrationStatus = "legacy settings copied"
-    else
-        self.migrationStatus = "no legacy settings found"
+    end
+
+    if migrationVersion < 2 then
+        -- Fill quantity is no longer user-configurable. Keep existing installs
+        -- aligned with the fixed small-batch pricing quantity.
+        self.db.global.auctionHouseScan.fillQuantity = DEFAULT_FILL_QUANTITY
+        self.migrationStatus = "input fill quantity updated"
     end
 
     self.db.migrationVersion = CURRENT_MIGRATION_VERSION
