@@ -39,7 +39,11 @@ end
 
 ---@param button Button|nil
 function Scanner:ResizeAuctionHouseTab(button)
-    if not button or not PanelTemplates_TabResize then
+    -- LibAHTab owns the size of every button it creates. In particular, TSM
+    -- temporarily scales AuctionHouseFrame down while its replacement UI is
+    -- open; recalculating a library button while that transition is happening
+    -- can leave the tab with a scale-adjusted width when Blizzard's UI returns.
+    if self.usesTabLibrary or not button or not PanelTemplates_TabResize then
         return
     end
 
@@ -137,9 +141,11 @@ function Scanner:CreateButton()
 
     button.craftSimIsLauncherTab = true
     self:ResizeAuctionHouseTab(button)
-    button:HookScript("OnShow", function(selfButton)
-        Scanner:ResizeAuctionHouseTab(selfButton)
-    end)
+    if not self.usesTabLibrary then
+        button:HookScript("OnShow", function(selfButton)
+            Scanner:ResizeAuctionHouseTab(selfButton)
+        end)
+    end
     button:SetScript("OnEnter", function(selfButton)
         GameTooltip:SetOwner(selfButton, "ANCHOR_RIGHT")
         GameTooltip:AddLine("CSE Recon")
@@ -174,31 +180,19 @@ function Scanner:AttachLauncherTabToAuctionHouseTabs()
         return
     end
 
+    -- Keep the fallback launcher out of Blizzard's Tabs collection. Adding it
+    -- there and calling PanelTemplates_SetNumTabs re-anchors every built-in tab
+    -- and conflicts with replacement UIs such as TSM when they restore the
+    -- default Auction House frame.
     local tabs = AuctionHouseFrame.Tabs
-    for index = #tabs, 1, -1 do
-        if tabs[index] == button then
-            table.remove(tabs, index)
-        end
-    end
-
-    table.insert(tabs, button)
-    for index, tab in ipairs(tabs) do
-        if tab.SetID then
-            tab:SetID(index)
-        end
-    end
-
     button:ClearAllPoints()
-    local previousTab = tabs[#tabs - 1]
+    local previousTab = tabs[#tabs]
     if previousTab then
         button:SetPoint("LEFT", previousTab, "RIGHT", -15, 0)
     else
         button:SetPoint("BOTTOMLEFT", AuctionHouseFrame, "BOTTOMLEFT", 20, -28)
     end
     self:ResizeAuctionHouseTab(button)
-    if PanelTemplates_SetNumTabs then
-        PanelTemplates_SetNumTabs(AuctionHouseFrame, #tabs)
-    end
 end
 
 function Scanner:UpdateLauncherTabState()

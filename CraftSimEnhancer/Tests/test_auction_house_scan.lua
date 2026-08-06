@@ -401,6 +401,55 @@ local function testAuctionHouseDisplayModeClassification()
     assertEqual(Scanner:IsBuiltInAuctionHouseDisplayMode(1), true, "non-table display mode")
 end
 
+local function testAuctionHouseTabLayoutOwnership()
+    local originalAuctionHouseFrame = AuctionHouseFrame
+    local originalPanelTemplatesTabResize = PanelTemplates_TabResize
+    local originalPanelTemplatesSetNumTabs = PanelTemplates_SetNumTabs
+    local originalButton = Scanner.button
+    local originalUsesTabLibrary = Scanner.usesTabLibrary
+
+    local resizeCalls = 0
+    PanelTemplates_TabResize = function()
+        resizeCalls = resizeCalls + 1
+    end
+
+    Scanner.usesTabLibrary = true
+    Scanner:ResizeAuctionHouseTab({})
+    assertEqual(resizeCalls, 0, "LibAHTab owns its button width")
+
+    local lastBuiltInTab = {}
+    local launcher = {
+        ClearAllPoints = function(self)
+            self.clearedPoints = true
+        end,
+        SetPoint = function(self, ...)
+            self.point = { ... }
+        end,
+    }
+    local tabs = { {}, lastBuiltInTab }
+    local setNumTabsCalls = 0
+    AuctionHouseFrame = { Tabs = tabs }
+    PanelTemplates_SetNumTabs = function()
+        setNumTabsCalls = setNumTabsCalls + 1
+    end
+    Scanner.button = launcher
+    Scanner.usesTabLibrary = false
+
+    Scanner:AttachLauncherTabToAuctionHouseTabs()
+
+    assertEqual(#tabs, 2, "fallback launcher stays outside Blizzard tab collection")
+    assertEqual(launcher.clearedPoints, true, "fallback launcher clears old anchors")
+    assertEqual(launcher.point[1], "LEFT", "fallback launcher anchor point")
+    assertEqual(launcher.point[2], lastBuiltInTab, "fallback launcher follows final Blizzard tab")
+    assertEqual(setNumTabsCalls, 0, "fallback launcher does not re-anchor Blizzard tabs")
+
+    AuctionHouseFrame = originalAuctionHouseFrame
+    PanelTemplates_TabResize = originalPanelTemplatesTabResize
+    PanelTemplates_SetNumTabs = originalPanelTemplatesSetNumTabs
+    Scanner.button = originalButton
+    Scanner.usesTabLibrary = originalUsesTabLibrary
+end
+
 local function testGeneratedRecipeCategoryLookupAndTargetIndex()
     namespace.Data = {
         RecipeCategories = {
@@ -525,6 +574,7 @@ testMissingLowerRankUsesCheapestRealBetterRank()
 testCraftSimCostCompatibilityFallbacks()
 testCraftSimTooltipCostCompatibility()
 testAuctionHouseDisplayModeClassification()
+testAuctionHouseTabLayoutOwnership()
 testGeneratedRecipeCategoryLookupAndTargetIndex()
 testConfigViewProfessionScopeAndSelectedTargetCount()
 
