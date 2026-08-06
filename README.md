@@ -24,13 +24,13 @@ World of Warcraft 12.1 will not be marked as supported until the live client and
 - Generated Midnight recipe and reagent scan targets.
 - Fill-quantity and outlier-aware reagent pricing.
 - Exact-rank crafted-output pricing using the lowest current buyout.
-- Missing-item reports with query diagnostics.
+- Unpriced-item reports with query diagnostics and future-scan exclusion.
 - Direct export into CraftSim's existing price-override system.
 
 ### Break-even intelligence
 
-- Missing outputs use CraftSim's saved crafting cost to estimate a sale price after the 5% Auction House cut.
-- Missing lower ranks are capped below the cheapest real higher-rank listing.
+- Unlisted products use CraftSim's saved crafting cost to estimate a sale price after the 5% Auction House cut.
+- Unlisted lower ranks are capped below the cheapest real higher-rank listing.
 - Supported crafted-item tooltips show `CSE Break-even (5% AH)` for the exact item rank when CraftSim has a saved cost.
 - Real Auction House results replace estimates during a later scan and push.
 
@@ -71,10 +71,11 @@ Do not place `CraftSimEnhancer` inside the `CraftSim` folder.
 
 1. In CraftSim's Recipe Scan or Craft Lists options, enable **Update Last Crafting Cost DB** and run a CraftSim scan once. This supplies costs for break-even estimates and tooltips.
 2. Open the Auction House and select the **CSE Recon** tab.
-3. Choose professions and recipe groups, then click **Scan Now**.
-4. Review any missing items and click **Push Overrides** when the scan completes.
-5. Use CraftSim normally to choose crafts and create its Auctionator shopping list.
-6. Buy the Auction House materials first, then visit vendors listed in the **Vendor Materials** window.
+3. Choose whether to scan **Crafted products**, **Required reagents**, or both.
+4. Select professions and recipes, or use **Individual Items** to build an exact list. Shared items remain selected while any selected recipe needs them, and the summary shows every unique Auction House search that will run.
+5. Review any **Unpriced Items** and click **Push Overrides** when the scan completes.
+6. Use CraftSim normally to choose crafts and create its Auctionator shopping list.
+7. Buy the Auction House materials first, then visit vendors listed in the **Vendor Materials** window.
 
 Large scans are intentionally paced around Blizzard's Auction House throttle and can take several minutes. Keep the Auction House open until the scan finishes or cancel it before leaving.
 
@@ -83,7 +84,7 @@ Large scans are intentionally paced around Blizzard's Auction House throttle and
 - Reagents use the selected fill quantity after trimming unusually high outlier listings.
 - Crafted outputs use the lowest matching buyout for the exact output rank.
 - A confirmed output with no listings is estimated as `floor(saved crafting cost / 0.95)`.
-- A missing lower-rank estimate is capped to one copper below the cheapest real higher-rank result.
+- An unlisted lower-rank estimate is capped to one copper below the cheapest real higher-rank result.
 - An output without a saved CraftSim cost is skipped; CraftSim Enhancer does not invent a nominal price.
 - The tooltip shows the uncapped break-even value. It may therefore be higher than a deliberately rank-capped override.
 
@@ -159,7 +160,7 @@ When reporting a problem in [GitHub Issues](https://github.com/crystaltech/Craft
 - The output of `/cse status`.
 - The CraftSim Enhancer, CraftSim, and World of Warcraft versions.
 - Any Lua error from BugSack/BugGrabber or `/console scriptErrors 1`.
-- The exported Missing AH report when the problem involves scanning.
+- The exported Unpriced AH report when the problem involves scanning.
 - Clear steps that reproduce the issue.
 
 ## License and project independence

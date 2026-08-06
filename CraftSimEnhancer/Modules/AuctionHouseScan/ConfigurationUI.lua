@@ -16,7 +16,7 @@ end
 ---@return string profession
 function Scanner:GetConfigProfession()
     -- The recipe tree already groups every profession selected in the left
-    -- column. Keep the saved profession filter for the flat Item Details view,
+    -- column. Keep the saved profession filter for the flat Individual Items view,
     -- but never let that hidden filter narrow the hierarchy.
     if self.configView == "presets" then
         return "ALL"
@@ -38,6 +38,123 @@ function Scanner:IsTargetInConfigProfession(target, profession)
     return profession == "ALL" or (target.professionMap and target.professionMap[profession] == true)
 end
 
+---@param targets table[]
+---@return table<string, table<string, table>> targetsByRecipe
+---@return table<string, table<string, boolean>> recipesByTarget
+function Scanner:BuildRecipeSelectionCatalog(targets)
+    local targetsByRecipe = {}
+    local recipesByTarget = {}
+    local knownRecipes = {}
+    for _, recipe in ipairs(self:GetGeneratedRecipes()) do
+        knownRecipes[self:GetRecipeTreeIdentity(recipe)] = true
+    end
+
+    local function add(recipeIdentity, target)
+        if not knownRecipes[recipeIdentity] then
+            return
+        end
+        targetsByRecipe[recipeIdentity] = targetsByRecipe[recipeIdentity] or {}
+        targetsByRecipe[recipeIdentity][target.key] = target
+        recipesByTarget[target.key] = recipesByTarget[target.key] or {}
+        recipesByTarget[target.key][recipeIdentity] = true
+    end
+
+    for _, target in ipairs(targets or {}) do
+        for recipeID in pairs(target.sourceRecipeMap or {}) do
+            add("id:" .. tostring(recipeID), target)
+        end
+        for profession, sourceNames in pairs(target.sourceNamesByProfession or {}) do
+            for sourceName in pairs(sourceNames) do
+                add("name:" .. tostring(profession) .. ":" .. tostring(sourceName), target)
+            end
+        end
+    end
+    return targetsByRecipe, recipesByTarget
+end
+
+---@param targets table[]
+function Scanner:RebuildSelectedTargetsFromRecipes(targets)
+    targets = targets or self.allConfigTargets
+    if not targets then
+        return
+    end
+    local _, recipesByTarget = self:BuildRecipeSelectionCatalog(targets)
+    local overrides = Config:GetTargetSelectionOverrides()
+    local selectedTargets = {}
+    for _, target in ipairs(targets) do
+        local selected = false
+        for recipeIdentity in pairs(recipesByTarget[target.key] or {}) do
+            if Config:IsRecipeSelected(recipeIdentity) then
+                selected = true
+                break
+            end
+        end
+        if overrides[target.key] ~= nil then
+            selected = overrides[target.key] == true
+        end
+        if selected then
+            selectedTargets[target.key] = true
+        end
+    end
+    Config:ReplaceSelectedTargets(selectedTargets)
+end
+
+---@param targets table[]
+function Scanner:EnsureRecipeSelectionModel(targets)
+    if Config:IsRecipeSelectionExplicit() then
+        return
+    end
+
+    local targetsByRecipe = self:BuildRecipeSelectionCatalog(targets)
+    local selectedRecipes = {}
+    local selectedByRecipe = {}
+    for recipeIdentity, targetMap in pairs(targetsByRecipe) do
+        local hasTargets = false
+        local allSelected = true
+        for _, target in pairs(targetMap) do
+            hasTargets = true
+            if not Config:IsTargetSelected(target.key) then
+                allSelected = false
+                break
+            end
+        end
+        if hasTargets and allSelected then
+            selectedRecipes[recipeIdentity] = true
+            for targetKey in pairs(targetMap) do
+                selectedByRecipe[targetKey] = true
+            end
+        end
+    end
+
+    local overrides = {}
+    local savedOverrides = Config:GetTargetSelectionOverrides()
+    for _, target in ipairs(targets or {}) do
+        local wasSelected = Config:IsTargetSelected(target.key)
+        local selectedFromRecipe = selectedByRecipe[target.key] == true
+        if savedOverrides[target.key] ~= nil then
+            overrides[target.key] = savedOverrides[target.key] == true
+        elseif wasSelected ~= selectedFromRecipe then
+            overrides[target.key] = wasSelected
+        end
+    end
+    Config:InitializeRecipeSelection(selectedRecipes, overrides)
+    self:RebuildSelectedTargetsFromRecipes(targets)
+end
+
+---@param targetKey string
+---@param selected boolean
+function Scanner:SaveIndividualTargetSelection(targetKey, selected)
+    Config:SaveTargetSelectionOverride(targetKey, selected)
+    if self.allConfigTargets then
+        self:RebuildSelectedTargetsFromRecipes()
+    else
+        -- Configuration may not have been opened yet, so the complete recipe
+        -- catalog is unavailable. Preserve the immediate effective choice;
+        -- the saved override will be applied when the catalog is initialized.
+        Config:SaveTargetSelected(targetKey, selected)
+    end
+end
+
 ---@return table[] targets
 function Scanner:GetConfigTargets()
     self:EnsureProfessionSelectionForCurrentCrafter()
@@ -48,12 +165,19 @@ function Scanner:GetConfigTargets()
     local targets = self:BuildScanTargets({
         includeAllProfessions = true,
         ignoreSavedFilter = true,
+        ignoreScanScope = true,
         skipFixedPrices = true,
     }) or {}
 
+    Config:EnsureExplicitTargetSelection(targets)
+    self.allConfigTargets = targets
+    self:EnsureRecipeSelectionModel(targets)
+
     local profession = self:GetConfigProfession()
     return ns.Filter(targets, function(target)
-        return self:IsTargetInSelectedProfessions(target) and self:IsTargetInConfigProfession(target, profession)
+        return self:IsTargetInSelectedProfessions(target)
+            and self:IsTargetInConfigProfession(target, profession)
+            and self:TargetMatchesScanScope(target)
     end)
 end
 
@@ -63,13 +187,185 @@ function Scanner:UpdateConfigSummary()
         return
     end
 
-    local enabled = 0
-    for _, target in ipairs(self.configTargets or {}) do
-        if Config:IsTargetSelected(target.key) then
-            enabled = enabled + 1
+    local products, reagents = 0, 0
+    local scanTargets = self:BuildScanTargets({ skipFixedPrices = true }) or {}
+    for _, target in ipairs(scanTargets) do
+        if target.kindMap and target.kindMap.output then
+            products = products + 1
+        elseif target.kindMap and target.kindMap.input then
+            reagents = reagents + 1
         end
     end
-    panel.summaryText:SetText(string.format("%d/%d selected", enabled, #(self.configTargets or {})))
+    local total = products + reagents
+    panel.summaryText:SetText(string.format("%d products + %d reagents = %d AH searches", products, reagents, total))
+end
+
+---@param scope string
+function Scanner:SetScanScope(scope)
+    Config:SaveScanScope(scope)
+    self.scanComplete = false
+    self.overridesPushed = false
+    self:SetStatus("Scanning " .. string.lower(self:GetScanScopeLabel(scope)) .. ".")
+    self:UpdateConfigList()
+    self:UpdateButtons()
+    self:UpdateProgressText()
+end
+
+function Scanner:UpdateScanScopeButtons()
+    local panel = self.configPanel
+    if not panel or not panel.scopeButtons then
+        return
+    end
+    local activeScope = Config:GetScanScope()
+    for scope, button in pairs(panel.scopeButtons) do
+        local active = scope == activeScope
+        button:SetText((active and "• " or "") .. self:GetScanScopeLabel(scope))
+        SetButtonEnabled(button, not self.isScanning and not active)
+    end
+end
+
+---@param selected boolean
+function Scanner:SetAllVisibleTargetsSelected(selected)
+    if self.configView == "presets" then
+        local changedRecipes = {}
+        local changedCount = 0
+        for _, entry in ipairs(self:GetPresetListEntries()) do
+            for recipeIdentity in pairs(entry.recipeIdentities or {}) do
+                if not changedRecipes[recipeIdentity] then
+                    changedRecipes[recipeIdentity] = true
+                    changedCount = changedCount + 1
+                end
+            end
+        end
+        for recipeIdentity in pairs(changedRecipes) do
+            Config:SaveRecipeSelected(recipeIdentity, selected)
+        end
+        self:RebuildSelectedTargetsFromRecipes()
+        self.scanComplete = false
+        self.overridesPushed = false
+        self:SetStatus(string.format("%s %d visible recipes.", selected and "Selected" or "Cleared", changedCount))
+        self:UpdateConfigList()
+        self:UpdateButtons()
+        self:UpdateProgressText()
+        return
+    end
+
+    local targets = self.configTargets or {}
+    targets = ns.Filter(targets, function(target)
+        return self:TargetMatchesItemSearch(target)
+    end)
+    for _, target in ipairs(targets) do
+        Config:SaveTargetSelectionOverride(target.key, selected)
+    end
+    self:RebuildSelectedTargetsFromRecipes()
+    self.scanComplete = false
+    self.overridesPushed = false
+    self:SetStatus(string.format("%s %d visible scan items.", selected and "Selected" or "Cleared", #targets))
+    self:UpdateConfigList()
+    self:UpdateButtons()
+    self:UpdateProgressText()
+end
+
+---@param target table
+---@return boolean
+function Scanner:TargetMatchesItemSearch(target)
+    if self.showSelectedItemsOnly and not Config:IsTargetSelected(target.key) then
+        return false
+    end
+    local searchText = string.lower(tostring(self.itemSearchText or ""))
+    searchText = string.match(searchText, "^%s*(.-)%s*$") or ""
+    if searchText == "" then
+        return true
+    end
+    local haystack = {
+        tostring(target.label or ""),
+        tostring(target.itemID or ""),
+        self:GetTargetTypeText(target),
+    }
+    for sourceName in pairs(target.sourceNames or {}) do
+        table.insert(haystack, tostring(sourceName))
+    end
+    return string.find(string.lower(table.concat(haystack, " ")), searchText, 1, true) ~= nil
+end
+
+---@param targets table[]?
+---@param limit number?
+---@return string[] selectedLabels
+---@return string[] unselectedLabels
+---@return number selectedRemaining
+---@return number unselectedRemaining
+function Scanner:GetTargetSelectionPreview(targets, limit)
+    limit = math.max(1, tonumber(limit) or 5)
+    local selectedTargets = {}
+    local unselectedTargets = {}
+    for _, target in ipairs(targets or {}) do
+        local destination = Config:IsTargetSelected(target.key) and selectedTargets or unselectedTargets
+        table.insert(destination, target)
+    end
+
+    local function sortTargets(left, right)
+        local leftLabel = tostring(left.label or left.itemID or "")
+        local rightLabel = tostring(right.label or right.itemID or "")
+        if leftLabel ~= rightLabel then
+            return leftLabel < rightLabel
+        end
+        return (tonumber(left.itemID) or 0) < (tonumber(right.itemID) or 0)
+    end
+    table.sort(selectedTargets, sortTargets)
+    table.sort(unselectedTargets, sortTargets)
+
+    local function formatTargets(values)
+        local labels = {}
+        for index = 1, math.min(limit, #values) do
+            local target = values[index]
+            local label = tostring(target.label or ("Item " .. tostring(target.itemID)))
+            table.insert(labels, string.format("%s (ItemID %s)", label, tostring(target.itemID or "?")))
+        end
+        return labels, math.max(0, #values - #labels)
+    end
+
+    local selectedLabels, selectedRemaining = formatTargets(selectedTargets)
+    local unselectedLabels, unselectedRemaining = formatTargets(unselectedTargets)
+    return selectedLabels, unselectedLabels, selectedRemaining, unselectedRemaining
+end
+
+---@return boolean allExpanded
+function Scanner:AreAllRecipeGroupsExpanded()
+    local foundGroup = false
+    for _, entry in ipairs(self:GetPresetListEntries()) do
+        if entry.kind == "profession" or entry.kind == "category" then
+            foundGroup = true
+            if not entry.expanded then
+                return false
+            end
+        end
+    end
+    return foundGroup
+end
+
+---@param expanded boolean
+function Scanner:SetAllRecipeGroupsExpanded(expanded)
+    local selectedProfessions = self:GetSelectedProfessions()
+    for _, professionInfo in ipairs(self.PROFESSIONS) do
+        if selectedProfessions[professionInfo.name] then
+            self.expandedProfessionGroups["profession:" .. professionInfo.name] = expanded
+        end
+    end
+    for _, recipe in ipairs(self:GetGeneratedRecipes()) do
+        if recipe.profession and selectedProfessions[recipe.profession] then
+            local categoryID = self:GetRecipeCategoryInfo(recipe)
+            self.expandedCategoryGroups["category:" .. recipe.profession .. ":" .. tostring(categoryID or 0)] = expanded
+        end
+    end
+    self:UpdateConfigList()
+end
+
+function Scanner:UpdateTreeExpansionButton()
+    local panel = self.configPanel
+    if not panel or not panel.treeExpansionButton then
+        return
+    end
+    panel.treeExpansionButton:SetText(self:AreAllRecipeGroupsExpanded() and "Collapse all" or "Expand all")
 end
 
 ---@param target table
@@ -144,22 +440,25 @@ function Scanner:CreateConfigRow(parent)
     row.checkbox:SetScript("OnClick", function(checkbox)
         local target = row.target
         if target then
-            Config:SaveTargetSelected(target.key, checkbox:GetChecked())
+            Scanner:SaveIndividualTargetSelection(target.key, checkbox:GetChecked())
             Scanner:UpdateConfigSummary()
             Scanner.scanComplete = false
             Scanner:UpdateButtons()
             Scanner:UpdateProgressText()
+            if Scanner.showSelectedItemsOnly then
+                Scanner:UpdateConfigList()
+            end
         end
     end)
 
     row.typeText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     row.typeText:SetPoint("LEFT", row.checkbox, "RIGHT", 2, 0)
-    row.typeText:SetWidth(42)
+    row.typeText:SetWidth(58)
     row.typeText:SetJustifyH("LEFT")
 
     row.nameText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     row.nameText:SetPoint("LEFT", row.typeText, "RIGHT", 8, 0)
-    row.nameText:SetWidth(295)
+    row.nameText:SetWidth(279)
     row.nameText:SetJustifyH("LEFT")
     row.nameText:SetWordWrap(false)
 
@@ -202,17 +501,23 @@ function Scanner:UpdateConfigList()
     end
 
     self.configTargets = self:GetConfigTargets()
+    self:UpdateScanScopeButtons()
 
     if self.configView == "presets" then
         panel.professionButton:Hide()
+        panel.searchBox:Hide()
+        panel.searchHint:Hide()
+        panel.selectedOnlyCheckbox:Hide()
+        panel.treeExpansionButton:Show()
         panel.presetButton:ClearAllPoints()
-        panel.presetButton:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -44)
-        panel.presetButton:SetText("Item Details")
+        panel.presetButton:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -76)
+        panel.presetButton:SetText("Individual Items")
         panel.headerText:Hide()
         panel.scrollFrame:ClearAllPoints()
-        panel.scrollFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -76)
+        panel.scrollFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -128)
         panel.scrollFrame:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -32, 16)
         self:UpdatePresetList()
+        self:UpdateTreeExpansionButton()
         self:UpdateConfigSummary()
         return
     end
@@ -220,20 +525,28 @@ function Scanner:UpdateConfigList()
     panel.professionButton:SetText(self:GetProfessionDropdownText(self:GetConfigProfession()))
     panel.professionButton:Show()
     panel.professionButton:ClearAllPoints()
-    panel.professionButton:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -44)
+    panel.professionButton:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -108)
     panel.presetButton:ClearAllPoints()
-    panel.presetButton:SetPoint("LEFT", panel.professionButton, "RIGHT", 8, 0)
+    panel.presetButton:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -76)
     panel.headerText:ClearAllPoints()
-    panel.headerText:SetPoint("TOPLEFT", panel, "TOPLEFT", 38, -80)
-    panel.headerText:SetText("Type       Item                                      ItemID     Recipes")
+    panel.headerText:SetPoint("TOPLEFT", panel, "TOPLEFT", 38, -140)
+    panel.headerText:SetText("Type            Item                                  ItemID     Recipes")
     panel.headerText:Show()
-    panel.presetButton:SetText("Recipe Groups")
+    panel.presetButton:SetText("Recipes")
+    panel.searchBox:Show()
+    panel.searchHint:SetShown((self.itemSearchText or "") == "" and not panel.searchBox:HasFocus())
+    panel.selectedOnlyCheckbox:SetChecked(self.showSelectedItemsOnly)
+    panel.selectedOnlyCheckbox:Show()
+    panel.treeExpansionButton:Hide()
     panel.scrollFrame:ClearAllPoints()
-    panel.scrollFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -96)
+    panel.scrollFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -156)
     panel.scrollFrame:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -32, 16)
 
+    local displayTargets = ns.Filter(self.configTargets, function(target)
+        return self:TargetMatchesItemSearch(target)
+    end)
     local rowHeight = 24
-    for index, target in ipairs(self.configTargets) do
+    for index, target in ipairs(displayTargets) do
         local row = self.configRows[index]
         if not row then
             row = self:CreateConfigRow(panel.scrollChild)
@@ -250,7 +563,7 @@ function Scanner:UpdateConfigList()
         row:Show()
     end
 
-    panel.scrollChild:SetHeight(math.max(1, #self.configTargets * rowHeight))
+    panel.scrollChild:SetHeight(math.max(1, #displayTargets * rowHeight))
     self:UpdateConfigSummary()
 end
 
@@ -327,24 +640,7 @@ end
 
 ---@return table[] entries
 function Scanner:GetPresetListEntries()
-    local quickSetsKey = "quick-sets"
-    local quickSetsExpanded = self:GetTreeExpanded(self.expandedQuickSetGroups, quickSetsKey, true)
-    local entries = {
-        {
-            kind = "quicksets",
-            key = quickSetsKey,
-            label = "Quick Sets",
-            expanded = quickSetsExpanded,
-        },
-    }
-    if quickSetsExpanded then
-        table.insert(entries, { kind = "preset", label = "All Scan Targets", id = self.PRESET_IDS.ALL })
-        table.insert(entries, { kind = "preset", label = "Inputs (reagents)", id = self.PRESET_IDS.INPUTS })
-        table.insert(entries, { kind = "preset", label = "Outputs (crafted items)", id = self.PRESET_IDS.OUTPUTS })
-        table.insert(entries, { kind = "preset", label = "Commodities", id = self.PRESET_IDS.COMMODITIES })
-        table.insert(entries, { kind = "preset", label = "Equipment", id = self.PRESET_IDS.EQUIPMENT })
-        table.insert(entries, { kind = "preset", label = "Materials", id = self.PRESET_IDS.MATERIALS })
-    end
+    local entries = {}
 
     local configProfession = self:GetConfigProfession()
     local professions
@@ -380,14 +676,18 @@ function Scanner:GetPresetListEntries()
                             info = categoryInfo,
                             recipes = {},
                             targetMap = {},
+                            recipeIdentities = {},
                         }
                         categoriesByID[categoryID] = category
                     end
                     local recipeTargetList = self:TargetMapToList(recipeTargets)
+                    local recipeIdentity = self:GetRecipeTreeIdentity(recipe)
                     table.insert(category.recipes, {
                         recipe = recipe,
+                        recipeIdentity = recipeIdentity,
                         targets = recipeTargetList,
                     })
+                    category.recipeIdentities[recipeIdentity] = true
                     for _, target in ipairs(recipeTargetList) do
                         category.targetMap[target.key] = target
                     end
@@ -397,6 +697,7 @@ function Scanner:GetPresetListEntries()
 
         local categories = {}
         local professionTargetMap = {}
+        local professionRecipeIdentities = {}
         for _, category in pairs(categoriesByID) do
             category.targets = self:TargetMapToList(category.targetMap)
             table.sort(category.recipes, function(left, right)
@@ -405,6 +706,9 @@ function Scanner:GetPresetListEntries()
             table.insert(categories, category)
             for _, target in ipairs(category.targets) do
                 professionTargetMap[target.key] = target
+            end
+            for recipeIdentity in pairs(category.recipeIdentities) do
+                professionRecipeIdentities[recipeIdentity] = true
             end
         end
         table.sort(categories, function(left, right)
@@ -429,6 +733,7 @@ function Scanner:GetPresetListEntries()
                 profession = profession,
                 expanded = professionExpanded,
                 targets = self:TargetMapToList(professionTargetMap),
+                recipeIdentities = professionRecipeIdentities,
             })
             firstVisibleProfession = false
 
@@ -444,6 +749,7 @@ function Scanner:GetPresetListEntries()
                         profession = profession,
                         expanded = categoryExpanded,
                         targets = category.targets,
+                        recipeIdentities = category.recipeIdentities,
                     })
                     if categoryExpanded then
                         for _, recipeEntry in ipairs(category.recipes) do
@@ -453,6 +759,7 @@ function Scanner:GetPresetListEntries()
                                 profession = profession,
                                 recipe = recipeEntry.recipe,
                                 targets = recipeEntry.targets,
+                                recipeIdentities = { [recipeEntry.recipeIdentity] = true },
                             })
                         end
                     end
@@ -472,9 +779,15 @@ function Scanner:GetTreeEntrySelectionState(entry)
     if entry.kind == "preset" then
         return self:GetPresetSelectionState(entry.id, entry.contextProfession)
     end
-    local targets = entry.targets or {}
-    local selectedCount = self:GetSelectedTargetCount(targets)
-    return self:GetPresetSelectionStateFromCounts("TREE", selectedCount, #targets), selectedCount, #targets
+    local selectedCount = 0
+    local totalCount = 0
+    for recipeIdentity in pairs(entry.recipeIdentities or {}) do
+        totalCount = totalCount + 1
+        if Config:IsRecipeSelected(recipeIdentity) then
+            selectedCount = selectedCount + 1
+        end
+    end
+    return self:GetPresetSelectionStateFromCounts("TREE", selectedCount, totalCount), selectedCount, totalCount
 end
 
 ---@param entry table
@@ -482,24 +795,27 @@ function Scanner:ToggleTreeEntrySelection(entry)
     if not entry or entry.kind == "quicksets" then
         return
     end
-    local targets
-    if entry.kind == "preset" then
-        targets = self:GetPresetMatchedTargets(entry.id, entry.contextProfession)
-    else
-        targets = entry.targets or {}
+    local selectedCount = 0
+    local totalCount = 0
+    for recipeIdentity in pairs(entry.recipeIdentities or {}) do
+        totalCount = totalCount + 1
+        if Config:IsRecipeSelected(recipeIdentity) then
+            selectedCount = selectedCount + 1
+        end
     end
-    local selectedCount = self:GetSelectedTargetCount(targets)
-    local selected = selectedCount ~= #targets
-    if #targets == 0 then
+    local selected = selectedCount ~= totalCount
+    if totalCount == 0 then
         return
     end
-    for _, target in ipairs(targets) do
-        Config:SaveTargetSelected(target.key, selected)
+    for recipeIdentity in pairs(entry.recipeIdentities or {}) do
+        Config:SaveRecipeSelected(recipeIdentity, selected)
     end
+    self:RebuildSelectedTargetsFromRecipes()
     self.scanComplete = false
     self.overridesPushed = false
-    self:SetStatus(string.format("%s %d scan targets for %s.",
-        selected and "Selected" or "Cleared", #targets, tostring(entry.label or "this group")))
+    local sharedItemNote = selected and "" or " Shared items needed elsewhere were kept."
+    self:SetStatus(string.format("%s %d recipe(s) for %s.%s",
+        selected and "Selected" or "Cleared", totalCount, tostring(entry.label or "this group"), sharedItemNote))
     self:UpdateButtons()
     self:UpdateProgressText()
     self:UpdateConfigList()
@@ -622,8 +938,11 @@ function Scanner:CreatePresetRow(parent)
 
     row.mixedTexture = row.checkbox:CreateTexture(nil, "OVERLAY")
     row.mixedTexture:SetPoint("CENTER", row.checkbox, "CENTER", 0, 0)
-    row.mixedTexture:SetSize(10, 2)
-    row.mixedTexture:SetColorTexture(1, 0.82, 0, 1)
+    -- A filled square is visually distinct from the horizontal collapse
+    -- marker beside category rows. It means some, but not all, recipes in the
+    -- group are selected.
+    row.mixedTexture:SetSize(8, 8)
+    row.mixedTexture:SetColorTexture(1, 0.65, 0, 1)
     row.mixedTexture:Hide()
 
     row.labelText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -643,30 +962,58 @@ function Scanner:CreatePresetRow(parent)
             Scanner:ToggleTreeEntrySelection(entry)
         end
     end)
-    row:SetScript("OnEnter", function(selfRow)
-        local entry = selfRow.entry
+    local function showSelectionTooltip(owner)
+        local entry = row.entry
         if not entry then
             return
         end
         if entry.kind == "quicksets" then
-            GameTooltip:SetOwner(selfRow, "ANCHOR_RIGHT")
+            GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
             GameTooltip:AddLine(entry.label)
             GameTooltip:AddLine("Click to expand or collapse the common scan selections.", 0.8, 0.8, 0.8, true)
             GameTooltip:Show()
             return
         end
         local state, selectedCount, totalCount = Scanner:GetTreeEntrySelectionState(entry)
-        GameTooltip:SetOwner(selfRow, "ANCHOR_RIGHT")
+        GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
         GameTooltip:AddLine(entry.label)
-        GameTooltip:AddLine(string.format("%d of %d scan targets selected (%s).", selectedCount, totalCount, state),
-            1, 1, 1, true)
+        GameTooltip:AddLine("Current scope: " .. Scanner:GetScanScopeLabel() .. ".", 0.8, 0.8, 0.8, true)
+        if entry.kind == "recipe" and state == "all" then
+            GameTooltip:AddLine("This recipe is selected.", 1, 1, 1, true)
+        elseif entry.kind == "recipe" and state == "none" then
+            GameTooltip:AddLine("This recipe is not selected.", 1, 1, 1, true)
+        elseif state == "all" then
+            GameTooltip:AddLine(string.format("All %d recipes are selected.", totalCount),
+                1, 1, 1, true)
+        elseif state == "partial" then
+            GameTooltip:AddLine(string.format("%d of %d recipes are selected.", selectedCount, totalCount),
+                1, 1, 1, true)
+            GameTooltip:AddLine("The filled square means this group is partially selected.", 1, 0.82, 0, true)
+        elseif state == "none" then
+            GameTooltip:AddLine(string.format("None of the %d recipes are selected.", totalCount),
+                1, 1, 1, true)
+        else
+            GameTooltip:AddLine("This group has no recipes with Auction House items in the current scope.",
+                0.8, 0.8, 0.8, true)
+        end
+        if entry.kind == "recipe" then
+            GameTooltip:AddLine(string.format("This recipe contributes %d Auction House item(s) in this scope.",
+                #(entry.targets or {})), 0.8, 0.8, 0.8, true)
+            GameTooltip:AddLine("Shared items stay selected while another selected recipe still needs them.",
+                0.8, 0.8, 0.8, true)
+        end
         if entry.kind == "profession" or entry.kind == "category" then
             GameTooltip:AddLine("Click the row to expand or collapse. Click the checkbox to change selection.",
                 0.8, 0.8, 0.8, true)
+        else
+            GameTooltip:AddLine("Click to select or clear this recipe.", 0.8, 0.8, 0.8, true)
         end
         GameTooltip:Show()
-    end)
+    end
+    row:SetScript("OnEnter", showSelectionTooltip)
     row:SetScript("OnLeave", GameTooltip_Hide)
+    row.checkbox:SetScript("OnEnter", showSelectionTooltip)
+    row.checkbox:SetScript("OnLeave", GameTooltip_Hide)
 
     return row
 end
@@ -725,8 +1072,9 @@ function Scanner:ApplyConfigPreset(presetID, contextProfession)
     if presetID == self.PRESET_IDS.ALL or presetID == self.PRESET_IDS.NONE then
         local selected = presetID == self.PRESET_IDS.ALL
         for _, target in ipairs(targets) do
-            Config:SaveTargetSelected(target.key, selected)
+            Config:SaveTargetSelectionOverride(target.key, selected)
         end
+        self:RebuildSelectedTargetsFromRecipes()
         if contextProfession then
             self:ClearActivePresetMap(contextProfession)
         elseif configProfession == "ALL" then
@@ -760,8 +1108,9 @@ function Scanner:ApplyConfigPreset(presetID, contextProfession)
         if Config:IsTargetSelected(target.key) ~= selected then
             changedCount = changedCount + 1
         end
-        Config:SaveTargetSelected(target.key, selected)
+        Config:SaveTargetSelectionOverride(target.key, selected)
     end
+    self:RebuildSelectedTargetsFromRecipes()
 
     activePresets[presetID] = selected or nil
     self.scanComplete = false
@@ -864,18 +1213,62 @@ function Scanner:CreateConfigPanel()
     panel.helpButton:SetScript("OnEnter", function(button)
         GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
         GameTooltip:AddLine("Scan Configuration")
-        GameTooltip:AddLine("Recipe Groups selects complete professions, in-game categories, or individual recipes.",
+        GameTooltip:AddLine("First choose whether to scan crafted products, required reagents, or both.",
             1, 1, 1, true)
-        GameTooltip:AddLine("Item Details provides exact Auction House target control and an optional profession filter.",
+        GameTooltip:AddLine("Recipes selects complete professions, in-game categories, or individual recipes.",
             1, 1, 1, true)
-        GameTooltip:AddLine("A mixed checkbox means only part of that group is selected.", 0.8, 0.8, 0.8, true)
+        GameTooltip:AddLine("Individual Items provides exact Auction House target control.", 1, 1, 1, true)
+        GameTooltip:AddLine("Use Selected only there to review the exact list before scanning.", 1, 1, 1, true)
+        GameTooltip:AddLine("Shared items remain selected while any selected recipe needs them.", 1, 1, 1, true)
+        GameTooltip:AddLine("A filled square means some, but not all, recipes in that group are selected.",
+            1, 0.82, 0, true)
         GameTooltip:Show()
     end)
     panel.helpButton:SetScript("OnLeave", GameTooltip_Hide)
 
+    panel.scopeLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    panel.scopeLabel:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -48)
+    panel.scopeLabel:SetText("Prices to scan:")
+
+    panel.scopeButtons = {}
+    local scopeDefinitions = {
+        { scope = self.SCAN_SCOPES.PRODUCTS, width = 132 },
+        { scope = self.SCAN_SCOPES.REAGENTS, width = 140 },
+        { scope = self.SCAN_SCOPES.BOTH, width = 152 },
+    }
+    local previousScopeButton
+    for _, definition in ipairs(scopeDefinitions) do
+        local scope = definition.scope
+        local button = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+        button:SetSize(definition.width, 24)
+        if previousScopeButton then
+            button:SetPoint("LEFT", previousScopeButton, "RIGHT", 4, 0)
+        else
+            button:SetPoint("LEFT", panel.scopeLabel, "RIGHT", 8, 0)
+        end
+        button:SetScript("OnClick", function()
+            Scanner:SetScanScope(scope)
+        end)
+        button:SetScript("OnEnter", function(selfButton)
+            GameTooltip:SetOwner(selfButton, "ANCHOR_RIGHT")
+            GameTooltip:AddLine(Scanner:GetScanScopeLabel(scope))
+            if scope == Scanner.SCAN_SCOPES.PRODUCTS then
+                GameTooltip:AddLine("Only Auction House items produced by the selected recipes.", 1, 1, 1, true)
+            elseif scope == Scanner.SCAN_SCOPES.REAGENTS then
+                GameTooltip:AddLine("Only Auction House materials consumed by the selected recipes.", 1, 1, 1, true)
+            else
+                GameTooltip:AddLine("Both crafted products and their required Auction House reagents.", 1, 1, 1, true)
+            end
+            GameTooltip:Show()
+        end)
+        button:SetScript("OnLeave", GameTooltip_Hide)
+        panel.scopeButtons[scope] = button
+        previousScopeButton = button
+    end
+
     panel.professionButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     panel.professionButton:SetSize(190, 24)
-    panel.professionButton:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -44)
+    panel.professionButton:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -108)
     panel.professionButton:SetText(self:GetProfessionDropdownText(self:GetConfigProfession()))
     panel.professionButton:SetScript("OnClick", function(button)
         ns.Compat.WoW:OpenContextMenu(button, function(_, rootDescription)
@@ -901,7 +1294,7 @@ function Scanner:CreateConfigPanel()
     end)
     panel.professionButton:SetScript("OnEnter", function(button)
         GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
-        GameTooltip:AddLine("Item Details Profession")
+        GameTooltip:AddLine("Individual Items Profession")
         GameTooltip:AddLine("Limit the flat item list to one selected profession. This does not change which professions will be scanned.",
             1, 1, 1, true)
         GameTooltip:Show()
@@ -910,35 +1303,104 @@ function Scanner:CreateConfigPanel()
 
     panel.presetButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     panel.presetButton:SetSize(120, 24)
-    panel.presetButton:SetPoint("LEFT", panel.professionButton, "RIGHT", 8, 0)
-    panel.presetButton:SetText("Item Details")
+    panel.presetButton:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -76)
+    panel.presetButton:SetText("Individual Items")
     panel.presetButton:SetScript("OnClick", function()
         Scanner:SetConfigView(Scanner.configView == "presets" and "items" or "presets")
     end)
     panel.presetButton:SetScript("OnEnter", function(button)
         GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
         if Scanner.configView == "presets" then
-            GameTooltip:AddLine("Item Details")
+            GameTooltip:AddLine("Individual Items")
             GameTooltip:AddLine("Fine tune individual Auction House scan targets.", 1, 1, 1, true)
         else
-            GameTooltip:AddLine("Recipe Groups")
+            GameTooltip:AddLine("Recipes")
             GameTooltip:AddLine("Choose targets by profession, in-game category, or recipe.", 1, 1, 1, true)
         end
         GameTooltip:Show()
     end)
     panel.presetButton:SetScript("OnLeave", GameTooltip_Hide)
 
+    panel.selectAllButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    panel.selectAllButton:SetSize(82, 24)
+    panel.selectAllButton:SetPoint("LEFT", panel.presetButton, "RIGHT", 8, 0)
+    panel.selectAllButton:SetText("Select all")
+    panel.selectAllButton:SetScript("OnClick", function()
+        Scanner:SetAllVisibleTargetsSelected(true)
+    end)
+
+    panel.clearAllButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    panel.clearAllButton:SetSize(82, 24)
+    panel.clearAllButton:SetPoint("LEFT", panel.selectAllButton, "RIGHT", 6, 0)
+    panel.clearAllButton:SetText("Clear all")
+    panel.clearAllButton:SetScript("OnClick", function()
+        Scanner:SetAllVisibleTargetsSelected(false)
+    end)
+
+    panel.treeExpansionButton = CreateFrame("Button", nil, panel)
+    panel.treeExpansionButton:SetSize(76, 16)
+    panel.treeExpansionButton:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -38, -108)
+    panel.treeExpansionButton:SetNormalFontObject("GameFontNormalSmall")
+    panel.treeExpansionButton:SetHighlightFontObject("GameFontHighlightSmall")
+    panel.treeExpansionButton:SetText("Expand all")
+    panel.treeExpansionButton:SetScript("OnClick", function()
+        Scanner:SetAllRecipeGroupsExpanded(not Scanner:AreAllRecipeGroupsExpanded())
+    end)
+    panel.treeExpansionButton:SetScript("OnEnter", function(button)
+        GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("Recipe Tree")
+        GameTooltip:AddLine("Expand or collapse every profession and recipe category in the current tree.",
+            1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    panel.treeExpansionButton:SetScript("OnLeave", GameTooltip_Hide)
+
     panel.summaryText = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    panel.summaryText:SetPoint("LEFT", panel.presetButton, "RIGHT", 12, 0)
-    panel.summaryText:SetWidth(160)
+    panel.summaryText:SetPoint("LEFT", panel.clearAllButton, "RIGHT", 10, 0)
+    panel.summaryText:SetWidth(270)
     panel.summaryText:SetJustifyH("LEFT")
 
+    panel.searchBox = CreateFrame("EditBox", nil, panel, "InputBoxTemplate")
+    panel.searchBox:SetSize(210, 22)
+    panel.searchBox:SetPoint("LEFT", panel.professionButton, "RIGHT", 12, 0)
+    panel.searchBox:SetAutoFocus(false)
+    panel.searchBox:SetText(self.itemSearchText or "")
+    panel.searchHint = panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    panel.searchHint:SetPoint("LEFT", panel.searchBox, "LEFT", 6, 0)
+    panel.searchHint:SetText("Search name or ItemID")
+    panel.searchHint:SetShown((self.itemSearchText or "") == "")
+    panel.searchBox:SetScript("OnTextChanged", function(editBox)
+        Scanner.itemSearchText = editBox:GetText() or ""
+        panel.searchHint:SetShown(Scanner.itemSearchText == "" and not editBox:HasFocus())
+        Scanner:UpdateConfigList()
+    end)
+    panel.searchBox:SetScript("OnEditFocusGained", function()
+        panel.searchHint:Hide()
+    end)
+    panel.searchBox:SetScript("OnEditFocusLost", function(editBox)
+        panel.searchHint:SetShown((editBox:GetText() or "") == "")
+    end)
+    panel.searchBox:SetScript("OnEscapePressed", function(editBox)
+        editBox:ClearFocus()
+    end)
+
+    panel.selectedOnlyCheckbox = CreateFrame("CheckButton", nil, panel, "UICheckButtonTemplate")
+    panel.selectedOnlyCheckbox:SetSize(22, 22)
+    panel.selectedOnlyCheckbox:SetPoint("LEFT", panel.searchBox, "RIGHT", 10, 0)
+    panel.selectedOnlyCheckbox.text = panel.selectedOnlyCheckbox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    panel.selectedOnlyCheckbox.text:SetPoint("LEFT", panel.selectedOnlyCheckbox, "RIGHT", 2, 0)
+    panel.selectedOnlyCheckbox.text:SetText("Selected only")
+    panel.selectedOnlyCheckbox:SetScript("OnClick", function(checkbox)
+        Scanner.showSelectedItemsOnly = checkbox:GetChecked() == true
+        Scanner:UpdateConfigList()
+    end)
+
     panel.headerText = panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    panel.headerText:SetPoint("TOPLEFT", panel, "TOPLEFT", 38, -80)
-    panel.headerText:SetText("Type       Item                                      ItemID     Recipes")
+    panel.headerText:SetPoint("TOPLEFT", panel, "TOPLEFT", 38, -140)
+    panel.headerText:SetText("Type            Item                                  ItemID     Recipes")
 
     panel.scrollFrame = CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
-    panel.scrollFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -96)
+    panel.scrollFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -156)
     panel.scrollFrame:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -32, 16)
 
     panel.scrollChild = CreateFrame("Frame", nil, panel.scrollFrame)

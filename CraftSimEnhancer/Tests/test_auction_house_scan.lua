@@ -27,6 +27,9 @@ local namespace = {
     Compat = { CraftSim = {} },
     Modules = {},
 }
+namespace.Config.AuctionHouseScan.GetScanScope = function()
+    return "BOTH"
+end
 function namespace:RegisterModule(name, module)
     self.Modules[name] = module
     registeredScanner = module
@@ -521,21 +524,128 @@ local function testGeneratedRecipeCategoryLookupAndTargetIndex()
     Scanner.expandedCategoryGroups = {}
     local entries = Scanner:GetPresetListEntries()
 
-    assertEqual(entries[1].kind, "quicksets", "quick sets group row")
-    assertEqual(entries[1].expanded, true, "quick sets default expansion")
-    assertEqual(entries[8].kind, "profession", "tree profession row")
-    assertEqual(entries[9].label, "Shattering", "tree category order")
-    assertEqual(entries[10].label, "Dawn Shatter", "tree named recipe row")
-    assertEqual(entries[11].label, "Chest Enchants", "tree second category")
-    assertEqual(entries[12].label, "Test Chest Enchant", "tree numeric recipe row")
-
-    Scanner.expandedQuickSetGroups["quick-sets"] = false
-    local collapsedEntries = Scanner:GetPresetListEntries()
-    assertEqual(collapsedEntries[1].expanded, false, "quick sets collapsed state")
-    assertEqual(collapsedEntries[2].kind, "profession", "collapsed quick sets hides preset rows")
+    assertEqual(entries[1].kind, "profession", "recipe tree starts with profession")
+    assertEqual(entries[2].label, "Shattering", "tree category order")
+    assertEqual(entries[3].label, "Dawn Shatter", "tree named recipe row")
+    assertEqual(entries[4].label, "Chest Enchants", "tree second category")
+    assertEqual(entries[5].label, "Test Chest Enchant", "tree numeric recipe row")
     Scanner.GetConfigProfession = originalGetConfigProfession
     Scanner.GetProfessionDisplayName = originalGetProfessionDisplayName
     Scanner.expandedQuickSetGroups = {}
+end
+
+local function testScanScopeUsesStrictItemRoles()
+    local product = { kindMap = { output = true } }
+    local reagent = { kindMap = { input = true } }
+
+    assertEqual(Scanner:TargetMatchesScanScope(product, "PRODUCTS"), true, "product in product scope")
+    assertEqual(Scanner:TargetMatchesScanScope(reagent, "PRODUCTS"), false, "reagent excluded from product scope")
+    assertEqual(Scanner:TargetMatchesScanScope(product, "REAGENTS"), false, "product excluded from reagent scope")
+    assertEqual(Scanner:TargetMatchesScanScope(reagent, "REAGENTS"), true, "reagent in reagent scope")
+    assertEqual(#Scanner:GetTargetsForScanScope({ product, reagent }, "BOTH"), 2, "both scope includes both roles")
+    assertEqual(Scanner:GetTargetTypeText(product), "Product", "product user-facing label")
+    assertEqual(Scanner:GetTargetTypeText(reagent), "Reagent", "reagent user-facing label")
+end
+
+local function testTargetBuildAppliesConfiguredScanScope()
+    local config = namespace.Config.AuctionHouseScan
+    local originalRecipes = namespace.Data.GeneratedRecipes
+    local originalGetSelectedProfessions = Scanner.GetSelectedProfessions
+    local originalGetScanScope = config.GetScanScope
+    local originalIsTargetSelected = config.IsTargetSelected
+    local originalGetSkippedTargets = config.GetSkippedTargets
+    local originalPriceResults = Scanner.priceResults
+    local originalFixedResultsByKey = Scanner.fixedResultsByKey
+    local scope = "BOTH"
+
+    namespace.Data.GeneratedRecipes = {
+        {
+            profession = "Alchemy",
+            stratName = "Test Product",
+            recipeID = 9001,
+            outputs = {
+                { itemRef = "Test Product", itemIDs = { 7001 }, auctionSellable = true },
+            },
+            reagents = {
+                { itemRef = "Test Reagent", itemIDs = { 7002 } },
+                {
+                    itemRef = "Vendor Reagent",
+                    itemIDs = { 7003 },
+                    vendorSold = true,
+                    vendorItemID = 7003,
+                    vendorPriceCopper = 250,
+                },
+            },
+        },
+    }
+    Scanner.GetSelectedProfessions = function() return { Alchemy = true } end
+    config.GetScanScope = function() return scope end
+    config.IsTargetSelected = function() return true end
+    config.GetSkippedTargets = function() return {} end
+    Scanner.priceResults = {}
+    Scanner.fixedResultsByKey = {}
+
+    scope = "PRODUCTS"
+    local targets = Scanner:BuildScanTargets()
+    assertEqual(#targets, 1, "product scope target count")
+    assertEqual(Scanner:GetTargetTypeText(targets[1]), "Product", "product scope target type")
+    assertEqual(#Scanner.priceResults, 0, "product scope excludes fixed reagent results")
+
+    scope = "REAGENTS"
+    targets = Scanner:BuildScanTargets()
+    assertEqual(#targets, 1, "reagent scope target count")
+    assertEqual(Scanner:GetTargetTypeText(targets[1]), "Reagent", "reagent scope target type")
+    assertEqual(#Scanner.priceResults, 1, "reagent scope includes fixed reagent result")
+
+    scope = "BOTH"
+    targets = Scanner:BuildScanTargets()
+    assertEqual(#targets, 2, "both scope target count")
+
+    namespace.Data.GeneratedRecipes = originalRecipes
+    Scanner.GetSelectedProfessions = originalGetSelectedProfessions
+    config.GetScanScope = originalGetScanScope
+    config.IsTargetSelected = originalIsTargetSelected
+    config.GetSkippedTargets = originalGetSkippedTargets
+    Scanner.priceResults = originalPriceResults
+    Scanner.fixedResultsByKey = originalFixedResultsByKey
+end
+
+local function testUnpricedStatusClassification()
+    assertEqual(Scanner:GetMissingReasonShort({ itemID = 7001, error = "No posted auctions found." }),
+        "No auctions", "no-auction status")
+    assertEqual(Scanner:GetMissingReasonShort({ itemID = 7001, error = "Auction House query timed out." }),
+        "Scan problem", "timeout status")
+    assertEqual(Scanner:GetMissingReasonShort({
+        itemID = 7001,
+        error = "Posted auctions found, but rank could not be identified.",
+    }), "Variant not recognized", "variant status")
+end
+
+local function testPartialRecipePreviewIsBoundedAndExplicit()
+    local config = namespace.Config.AuctionHouseScan
+    local originalIsTargetSelected = config.IsTargetSelected
+    local selected = { a = true, c = true, e = true }
+    config.IsTargetSelected = function(_, key)
+        return selected[key] == true
+    end
+
+    local selectedLabels, unselectedLabels, selectedRemaining, unselectedRemaining =
+        Scanner:GetTargetSelectionPreview({
+            { key = "a", label = "Alpha", itemID = 11 },
+            { key = "b", label = "Beta", itemID = 12 },
+            { key = "c", label = "Gamma", itemID = 13 },
+            { key = "d", label = "Delta", itemID = 14 },
+            { key = "e", label = "Epsilon", itemID = 15 },
+        }, 2)
+
+    assertEqual(selectedLabels[1], "Alpha (ItemID 11)", "selected preview first label")
+    assertEqual(selectedLabels[2], "Epsilon (ItemID 15)", "selected preview sorted label")
+    assertEqual(selectedRemaining, 1, "selected preview remaining count")
+    assertEqual(unselectedLabels[1], "Beta (ItemID 12)", "unselected preview first label")
+    assertEqual(unselectedLabels[2], "Delta (ItemID 14)", "unselected preview sorted label")
+    assertEqual(unselectedRemaining, 0, "unselected preview remaining count")
+
+    config.IsTargetSelected = originalIsTargetSelected
 end
 
 local function testConfigViewProfessionScopeAndSelectedTargetCount()
@@ -555,9 +665,9 @@ local function testConfigViewProfessionScopeAndSelectedTargetCount()
     assertEqual(Scanner:GetConfigProfession(), "ALL", "recipe tree ignores hidden profession filter")
 
     Scanner.configView = "items"
-    assertEqual(Scanner:GetConfigProfession(), "Cooking", "item details keeps profession filter")
+    assertEqual(Scanner:GetConfigProfession(), "Cooking", "individual items keeps profession filter")
     assertEqual(Scanner:GetProfessionDropdownText("ALL"), "Profession: All Selected",
-        "item details all-professions label")
+        "individual items all-professions label")
 
     Scanner.HasSelectedProfession = function() return false end
     Scanner.BuildScanTargets = function() error("target build should not run without a profession") end
@@ -578,6 +688,67 @@ local function testConfigViewProfessionScopeAndSelectedTargetCount()
     Scanner.configView = originalConfigView
 end
 
+local function testClearingRecipePreservesTargetsClaimedByAnotherRecipe()
+    local config = namespace.Config.AuctionHouseScan
+    local originalRecipes = namespace.Data.GeneratedRecipes
+    local originals = {
+        GetTargetSelectionOverrides = config.GetTargetSelectionOverrides,
+        IsRecipeSelected = config.IsRecipeSelected,
+        SaveRecipeSelected = config.SaveRecipeSelected,
+        ReplaceSelectedTargets = config.ReplaceSelectedTargets,
+        UpdateButtons = Scanner.UpdateButtons,
+        UpdateProgressText = Scanner.UpdateProgressText,
+        UpdateConfigList = Scanner.UpdateConfigList,
+        SetStatus = Scanner.SetStatus,
+        allConfigTargets = Scanner.allConfigTargets,
+    }
+
+    namespace.Data.GeneratedRecipes = {
+        { profession = "Alchemy", stratName = "Recipe A", recipeID = 101 },
+        { profession = "Alchemy", stratName = "Recipe B", recipeID = 102 },
+    }
+    local targets = {
+        { key = "only-a", sourceRecipeMap = { [101] = true }, sourceNamesByProfession = {} },
+        { key = "shared", sourceRecipeMap = { [101] = true, [102] = true }, sourceNamesByProfession = {} },
+        { key = "only-b", sourceRecipeMap = { [102] = true }, sourceNamesByProfession = {} },
+    }
+    local selectedRecipes = { ["id:101"] = true, ["id:102"] = true }
+    local selectedTargets = {}
+    config.GetTargetSelectionOverrides = function() return {} end
+    config.IsRecipeSelected = function(_, identity) return selectedRecipes[identity] == true end
+    config.SaveRecipeSelected = function(_, identity, selected)
+        selectedRecipes[identity] = selected == true or nil
+    end
+    config.ReplaceSelectedTargets = function(_, values) selectedTargets = values end
+    Scanner.UpdateButtons = function() end
+    Scanner.UpdateProgressText = function() end
+    Scanner.UpdateConfigList = function() end
+    Scanner.SetStatus = function() end
+    Scanner.allConfigTargets = targets
+
+    Scanner:ToggleTreeEntrySelection({
+        kind = "recipe",
+        label = "Recipe A",
+        recipeIdentities = { ["id:101"] = true },
+    })
+
+    assertEqual(selectedRecipes["id:101"], nil, "cleared recipe loses its selection claim")
+    assertEqual(selectedTargets["only-a"], nil, "recipe-exclusive target is cleared")
+    assertEqual(selectedTargets.shared, true, "shared target remains selected for recipe B")
+    assertEqual(selectedTargets["only-b"], true, "other recipe target remains selected")
+
+    namespace.Data.GeneratedRecipes = originalRecipes
+    config.GetTargetSelectionOverrides = originals.GetTargetSelectionOverrides
+    config.IsRecipeSelected = originals.IsRecipeSelected
+    config.SaveRecipeSelected = originals.SaveRecipeSelected
+    config.ReplaceSelectedTargets = originals.ReplaceSelectedTargets
+    Scanner.UpdateButtons = originals.UpdateButtons
+    Scanner.UpdateProgressText = originals.UpdateProgressText
+    Scanner.UpdateConfigList = originals.UpdateConfigList
+    Scanner.SetStatus = originals.SetStatus
+    Scanner.allConfigTargets = originals.allConfigTargets
+end
+
 testScannerModuleSurfaceComplete()
 testReturnedItemKeyIsUsedForNormalSearch()
 testBroadEquipmentSearchReadsAllRanks()
@@ -593,6 +764,11 @@ testCraftSimTooltipCostCompatibility()
 testAuctionHouseDisplayModeClassification()
 testAuctionHouseTabLayoutOwnership()
 testGeneratedRecipeCategoryLookupAndTargetIndex()
+testClearingRecipePreservesTargetsClaimedByAnotherRecipe()
 testConfigViewProfessionScopeAndSelectedTargetCount()
+testScanScopeUsesStrictItemRoles()
+testTargetBuildAppliesConfiguredScanScope()
+testUnpricedStatusClassification()
+testPartialRecipePreviewIsBoundedAndExplicit()
 
 print("AuctionHouseScan tests passed")

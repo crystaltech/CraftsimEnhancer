@@ -21,16 +21,17 @@ This release was tested with World of Warcraft Retail interface 120007 (12.0.7) 
 
 1. Enable **Update Last Crafting Cost DB** in CraftSim's Recipe Scan or Craft Lists options and run a CraftSim scan once.
 2. Open the Auction House and select **CSE Recon**.
-3. Choose professions or recipe groups, click **Scan Now**, review missing results, and click **Push Overrides**.
-4. Create a CraftSim Auctionator shopping list. Vendor items are separated into the **Vendor Materials** window.
-5. Buy Auction House materials first, then visit the listed vendors and use **Buy Vendor Mats**.
+3. Choose **Crafted products**, **Required reagents**, or both, then select recipes or an exact list under **Individual Items**. Shared items remain selected while any selected recipe needs them.
+4. Click **Scan Now**, review **Unpriced Items**, and click **Push Overrides**.
+5. Create a CraftSim Auctionator shopping list. Vendor items are separated into the **Vendor Materials** window.
+6. Buy Auction House materials first, then visit the listed vendors and use **Buy Vendor Mats**.
 
 ## Key behavior
 
 - Reagents use fill-quantity pricing with high-price outlier trimming.
 - Crafted outputs use the lowest matching buyout for the exact rank.
-- Missing outputs use `floor(saved crafting cost / 0.95)` when CraftSim has a saved cost.
-- Missing lower ranks are capped below real higher-rank listings.
+- Unlisted products use `floor(saved crafting cost / 0.95)` when CraftSim has a saved cost.
+- Unlisted lower ranks are capped below real higher-rank listings.
 - `CSE Break-even (5% AH)` tooltips show the uncapped exact-rank break-even value.
 - Vendor-plan quantities decrease only after purchased items appear in the player's bags.
 - CraftSim Enhancer settings are independent from CraftSim updates.
@@ -51,7 +52,7 @@ Documentation, releases, and issue reporting are available at:
 
 https://github.com/crystaltech/CraftsimEnhancer
 
-For scanner problems, include the exported Missing AH report. For other problems, include `/cse status`, installed versions, reproduction steps, and any Lua error.
+For scanner problems, include the exported Unpriced AH report. For other problems, include `/cse status`, installed versions, reproduction steps, and any Lua error.
 
 ## License
 

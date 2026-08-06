@@ -213,9 +213,13 @@ function Scanner:FinishPendingTarget(rows, resultType)
             target.error = target.error or "No posted auctions found."
         end
         table.insert(self.missingResults, {
+            targetKey = target.key,
             itemID = target.itemID,
             itemLevel = target.itemLevel,
             label = target.label,
+            pricingMode = target.pricingMode,
+            typeText = self:GetTargetTypeText(target),
+            sourceNames = target.sourceNames,
             error = target.error,
             diagnostic = self:GetTargetDiagnosticSummary(target),
             overrideTargets = target.overrideTargets,
@@ -245,14 +249,14 @@ function Scanner:FinishScan()
     self.pendingTimeoutToken = self.pendingTimeoutToken + 1
     self.pendingPollToken = self.pendingPollToken + 1
     self.scanComplete = true
-    self:SetStatus(string.format("Scan complete. %d prices ready, %d missing. Press Push Overrides to apply.",
+    self:SetStatus(string.format("Scan complete. %d prices ready, %d unpriced. Press Push Overrides to apply.",
         #self.priceResults, self:GetMissingDisplayCount()))
     self:UpdateProgressText()
     self:UpdateButtons()
     if self.missingPanel and self.missingPanel:IsShown() then
         self:UpdateMissingList()
     end
-    SystemPrint(string.format("Scan complete: %d prices found, %d missing.", #self.priceResults,
+    SystemPrint(string.format("Scan complete: %d prices found, %d unpriced.", #self.priceResults,
         self:GetMissingDisplayCount()))
 end
 

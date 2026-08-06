@@ -225,7 +225,7 @@ function Scanner:ShowPanelView(view)
     self:CreateMissingPanel()
 
     if view == "missing" and #self.missingResults == 0 then
-        self:SetStatus("No missing scan items to show.")
+        self:SetStatus("No unpriced scan items to show.")
         view = "config"
     end
 
@@ -366,7 +366,7 @@ function Scanner:CreatePanel()
     panel.missingButton = CreateFrame("Button", nil, panel.leftPane, "UIPanelButtonTemplate")
     panel.missingButton:SetSize(164, 24)
     panel.missingButton:SetPoint("TOP", panel.scanButton, "BOTTOM", 0, -6)
-    panel.missingButton:SetText("Missing (0)")
+    panel.missingButton:SetText("Unpriced (0)")
     panel.missingButton:SetScript("OnClick", function()
         Scanner:ToggleMissingPanel()
     end)
@@ -428,7 +428,7 @@ end
 
 function Scanner:ToggleMissingPanel()
     if #self.missingResults == 0 then
-        self:SetStatus("No missing scan items to show.")
+        self:SetStatus("No unpriced scan items to show.")
         return
     end
 
@@ -451,7 +451,7 @@ function Scanner:CreateMissingPanel()
 
     panel.title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     panel.title:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -14)
-    panel.title:SetText("Missing AH Items")
+    panel.title:SetText("Unpriced Items")
 
     panel.backButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     panel.backButton:SetSize(118, 22)
@@ -471,13 +471,13 @@ function Scanner:CreateMissingPanel()
 
     panel.headerText = panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     panel.headerText:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -52)
-    panel.headerText:SetText("Item                                              ItemID       Reason")
+    panel.headerText:SetText("Type          Item                              ItemID     Status             Action")
 
     panel.emptyText = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     panel.emptyText:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -78)
     panel.emptyText:SetPoint("RIGHT", panel, "RIGHT", -18, 0)
     panel.emptyText:SetJustifyH("LEFT")
-    panel.emptyText:SetText("No missing items from the latest scan.")
+    panel.emptyText:SetText("No unpriced items from the latest scan.")
 
     panel.scrollFrame = CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
     panel.scrollFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -70)
@@ -497,6 +497,7 @@ function Scanner:GetMissingRowTooltip(result)
     local lines = {
         tostring(result.label or ("Item " .. tostring(result.itemID))),
         "ItemID: " .. tostring(result.itemID),
+        "Type: " .. tostring(result.typeText or "Scan item"),
     }
     if result.count and result.count > 1 then
         table.insert(lines, "Scan Targets: " .. tostring(result.count))
@@ -511,6 +512,16 @@ function Scanner:GetMissingRowTooltip(result)
         table.insert(lines, "Item Level: " .. tostring(result.itemLevel))
     end
     table.insert(lines, "Reason: " .. tostring(result.error or "No posted auctions found."))
+    if result.sourceNames and #result.sourceNames > 0 then
+        table.insert(lines, "Recipes:")
+        for index, sourceName in ipairs(result.sourceNames) do
+            if index > 8 then
+                table.insert(lines, "...")
+                break
+            end
+            table.insert(lines, "- " .. tostring(sourceName))
+        end
+    end
     if result.estimatedPrice then
         table.insert(lines, "Override source: " .. ESTIMATED_RESULT_SOURCE)
         table.insert(lines, "Estimated price: " .. ns.Compat.WoW:FormatMoney(result.estimatedPrice))
@@ -526,6 +537,9 @@ function Scanner:GetMissingRowTooltip(result)
     elseif result.estimateOnPush then
         table.insert(lines, "Result override on push: break-even estimate from CraftSim's saved average cost.")
     end
+    if result.excluded then
+        table.insert(lines, "Excluded from future scans.")
+    end
     return table.concat(lines, "\n")
 end
 
@@ -534,23 +548,19 @@ end
 function Scanner:GetMissingReasonShort(result)
     local errorText = tostring(result.error or "No posted auctions found.")
     local lowerError = string.lower(errorText)
-    if string.find(lowerError, "timed out", 1, true) then
-        return "Timeout"
+    local scanInfo = result and result.itemID and self:GetItemScanInfo(result.itemID)
+    if scanInfo and scanInfo.skip then
+        return "Invalid target"
+    elseif string.find(lowerError, "timed out", 1, true)
+        or string.find(lowerError, "throttled", 1, true)
+        or string.find(lowerError, "dropped", 1, true) then
+        return "Scan problem"
     elseif string.find(lowerError, "rank could not be identified", 1, true) then
-        return "Rank unknown"
+        return "Variant not recognized"
     elseif string.find(lowerError, "no posted", 1, true) then
-        if result and result.estimatedPrice then
-            return ESTIMATED_RESULT_SOURCE
-        elseif result and result.estimateSkipped then
-            return "No cost; skipped"
-        end
-        return result and result.estimateOnPush and "Estimate on push" or "No auctions"
-    elseif string.find(lowerError, "throttled", 1, true) then
-        return "Throttled"
-    elseif string.find(lowerError, "dropped", 1, true) then
-        return "Dropped"
+        return "No auctions"
     end
-    return errorText
+    return "Scan problem"
 end
 
 ---@param result table
@@ -579,7 +589,8 @@ function Scanner:GetDisplayMissingResults()
     for _, result in ipairs(self.missingResults) do
         result.estimateOnPush = self:IsConfirmedNoAuctionResult(result) and self:MissingResultHasOutputOverride(result)
         local reasonShort = self:GetMissingReasonShort(result)
-        local key = tostring(result.itemID) .. ":" .. tostring(reasonShort)
+        local key = tostring(result.itemID) .. ":" .. tostring(result.pricingMode or "") .. ":" ..
+            tostring(reasonShort)
         local display = grouped[key]
         if not display then
             display = {
@@ -588,6 +599,8 @@ function Scanner:GetDisplayMissingResults()
                 label = result.label,
                 error = result.error,
                 reasonShort = reasonShort,
+                pricingMode = result.pricingMode,
+                typeText = result.typeText,
                 count = 0,
                 itemLevelMap = {},
                 itemLevelOrder = {},
@@ -600,6 +613,10 @@ function Scanner:GetDisplayMissingResults()
                 estimateSkipped = result.estimateSkipped,
                 diagnosticMap = {},
                 diagnostics = {},
+                targetKeyMap = {},
+                targetKeys = {},
+                sourceNameMap = {},
+                sourceNames = {},
             }
             grouped[key] = display
             table.insert(results, display)
@@ -617,6 +634,17 @@ function Scanner:GetDisplayMissingResults()
         display.estimateCapped = display.estimateCapped or result.estimateCapped
         display.estimateSkipped = display.estimateSkipped or result.estimateSkipped
 
+        if result.targetKey and not display.targetKeyMap[result.targetKey] then
+            display.targetKeyMap[result.targetKey] = true
+            table.insert(display.targetKeys, result.targetKey)
+        end
+        for sourceName in pairs(result.sourceNames or {}) do
+            if not display.sourceNameMap[sourceName] then
+                display.sourceNameMap[sourceName] = true
+                table.insert(display.sourceNames, sourceName)
+            end
+        end
+
         if result.diagnostic and result.diagnostic ~= "" and not display.diagnosticMap[result.diagnostic] then
             display.diagnosticMap[result.diagnostic] = true
             table.insert(display.diagnostics, result.diagnostic)
@@ -631,6 +659,14 @@ function Scanner:GetDisplayMissingResults()
 
     for _, result in ipairs(results) do
         table.sort(result.itemLevelOrder)
+        table.sort(result.sourceNames)
+        result.excluded = #result.targetKeys > 0
+        for _, targetKey in ipairs(result.targetKeys) do
+            if Config:IsTargetSelected(targetKey) then
+                result.excluded = false
+                break
+            end
+        end
     end
 
     return results
@@ -655,12 +691,12 @@ end
 function Scanner:GetMissingReportText()
     local displayResults = self:GetDisplayMissingResults()
     local lines = {
-        "CraftSim Enhancer Missing AH Report",
+        "CraftSim Enhancer Unpriced AH Report",
         "Addon Version\t" .. tostring(ns.version or "unknown"),
-        "Grouped Missing Items\t" .. tostring(#displayResults),
-        "Missing Scan Targets\t" .. tostring(#self.missingResults),
+        "Grouped Unpriced Items\t" .. tostring(#displayResults),
+        "Unpriced Scan Targets\t" .. tostring(#self.missingResults),
         "",
-        "Item\tItemID\tTargets\tItem Levels\tReason\tDetails\tDiagnostics",
+        "Type\tItem\tItemID\tTargets\tItem Levels\tStatus\tDetails\tRecipes\tDiagnostics",
     }
 
     for _, result in ipairs(displayResults) do
@@ -676,12 +712,14 @@ function Scanner:GetMissingReportText()
         end
 
         table.insert(lines, table.concat({
+            self:SanitizeMissingReportField(result.typeText or "Scan item"),
             self:SanitizeMissingReportField(result.label or ("Item " .. tostring(result.itemID))),
             tostring(result.itemID or ""),
             tostring(result.count or 1),
             levels,
             self:SanitizeMissingReportField(result.reasonShort or self:GetMissingReasonShort(result)),
             self:SanitizeMissingReportField(result.error or "No posted auctions found."),
+            self:SanitizeMissingReportField(table.concat(result.sourceNames or {}, ", ")),
             self:SanitizeMissingReportField(table.concat(result.diagnostics or {}, " || ")),
         }, "\t"))
     end
@@ -721,7 +759,7 @@ function Scanner:CreateMissingExportPanel()
 
     panel.title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     panel.title:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -16)
-    panel.title:SetText("Missing AH Report")
+    panel.title:SetText("Unpriced AH Report")
 
     panel.instructions = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     panel.instructions:SetPoint("TOPLEFT", panel.title, "BOTTOMLEFT", 0, -8)
@@ -768,7 +806,7 @@ end
 
 function Scanner:OpenMissingReport()
     if #self.missingResults == 0 then
-        self:SetStatus("No missing scan items to copy.")
+        self:SetStatus("No unpriced scan items to copy.")
         return
     end
 
@@ -795,10 +833,31 @@ function Scanner:UpdateMissingRow(row, result)
     if result.count and result.count > 1 then
         label = label .. " x" .. tostring(result.count)
     end
+    row.typeText:SetText(tostring(result.typeText or "Item"))
     row.nameText:SetText(label)
     row.itemIDText:SetText(tostring(result.itemID))
     row.reasonText:SetText(result.reasonShort or self:GetMissingReasonShort(result))
+    row.excludeButton:SetText(result.excluded and "Excluded" or "Exclude")
+    SetButtonEnabled(row.excludeButton, not result.excluded)
     row.tooltipText = self:GetMissingRowTooltip(result)
+end
+
+---@param result table?
+function Scanner:ExcludeMissingResult(result)
+    if not result then
+        return
+    end
+    local excludedCount = 0
+    for _, targetKey in ipairs(result.targetKeys or {}) do
+        if Config:IsTargetSelected(targetKey) then
+            self:SaveIndividualTargetSelection(targetKey, false)
+            excludedCount = excludedCount + 1
+        end
+    end
+    self:SetStatus(string.format("Excluded %d target(s) for %s from future scans.", excludedCount,
+        tostring(result.label or result.itemID or "this item")))
+    self:UpdateMissingList()
+    self:UpdateButtons()
 end
 
 ---@param parent Frame
@@ -812,9 +871,14 @@ function Scanner:CreateMissingRow(parent)
     row.bg:SetAllPoints(row)
     row.bg:SetColorTexture(1, 1, 1, 0.03)
 
+    row.typeText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    row.typeText:SetPoint("LEFT", row, "LEFT", 2, 0)
+    row.typeText:SetWidth(58)
+    row.typeText:SetJustifyH("LEFT")
+
     row.nameText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    row.nameText:SetPoint("LEFT", row, "LEFT", 2, 0)
-    row.nameText:SetWidth(310)
+    row.nameText:SetPoint("LEFT", row.typeText, "RIGHT", 6, 0)
+    row.nameText:SetWidth(190)
     row.nameText:SetJustifyH("LEFT")
     if row.nameText.SetWordWrap then
         row.nameText:SetWordWrap(false)
@@ -825,7 +889,7 @@ function Scanner:CreateMissingRow(parent)
 
     row.itemIDText = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     row.itemIDText:SetPoint("LEFT", row.nameText, "RIGHT", 8, 0)
-    row.itemIDText:SetWidth(72)
+    row.itemIDText:SetWidth(58)
     row.itemIDText:SetJustifyH("LEFT")
     if row.itemIDText.SetWordWrap then
         row.itemIDText:SetWordWrap(false)
@@ -836,7 +900,7 @@ function Scanner:CreateMissingRow(parent)
 
     row.reasonText = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     row.reasonText:SetPoint("LEFT", row.itemIDText, "RIGHT", 8, 0)
-    row.reasonText:SetWidth(126)
+    row.reasonText:SetWidth(116)
     row.reasonText:SetJustifyH("LEFT")
     if row.reasonText.SetWordWrap then
         row.reasonText:SetWordWrap(false)
@@ -845,9 +909,16 @@ function Scanner:CreateMissingRow(parent)
         row.reasonText:SetMaxLines(1)
     end
 
+    row.excludeButton = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+    row.excludeButton:SetSize(72, 22)
+    row.excludeButton:SetPoint("RIGHT", row, "RIGHT", -2, 0)
+    row.excludeButton:SetScript("OnClick", function()
+        Scanner:ExcludeMissingResult(row.result)
+    end)
+
     row:SetScript("OnEnter", function(selfRow)
         GameTooltip:SetOwner(selfRow, "ANCHOR_RIGHT")
-        GameTooltip:AddLine("Missing AH Item")
+        GameTooltip:AddLine("Unpriced AH Item")
         GameTooltip:AddLine(selfRow.tooltipText or "", 1, 1, 1, true)
         GameTooltip:Show()
     end)

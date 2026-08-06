@@ -47,6 +47,8 @@ Scanner.expandedProfessionGroups = {}
 Scanner.expandedCategoryGroups = {}
 Scanner.missingRows = {}
 Scanner.activeConfigPresets = {}
+Scanner.itemSearchText = ""
+Scanner.showSelectedItemsOnly = false
 Scanner.isScanning = false
 Scanner.scanComplete = false
 Scanner.overridesPushed = false
@@ -151,6 +153,12 @@ Scanner.PRESET_IDS = {
     LEATHERWORKING_DRUMS = "LEATHERWORKING_DRUMS",
     TAILORING_BOLTS = "TAILORING_BOLTS",
     COMPETITOR_GEAR = "COMPETITOR_GEAR",
+}
+
+Scanner.SCAN_SCOPES = {
+    PRODUCTS = "PRODUCTS",
+    REAGENTS = "REAGENTS",
+    BOTH = "BOTH",
 }
 
 Scanner.PRESET_CATEGORY_TAGS = {
@@ -1216,9 +1224,46 @@ function Scanner:GetTargetTypeText(target)
     if isInput and isOutput then
         return "Both"
     elseif isOutput then
-        return "Output"
+        return "Product"
     end
-    return "Input"
+    return "Reagent"
+end
+
+---@param scope string?
+---@return string label
+function Scanner:GetScanScopeLabel(scope)
+    scope = scope or Config:GetScanScope()
+    if scope == self.SCAN_SCOPES.PRODUCTS then
+        return "Crafted products"
+    elseif scope == self.SCAN_SCOPES.REAGENTS then
+        return "Required reagents"
+    end
+    return "Products + reagents"
+end
+
+---@param target table?
+---@param scope string?
+---@return boolean
+function Scanner:TargetMatchesScanScope(target, scope)
+    if not target then
+        return false
+    end
+    scope = scope or Config:GetScanScope()
+    if scope == self.SCAN_SCOPES.PRODUCTS then
+        return target.kindMap and target.kindMap.output == true
+    elseif scope == self.SCAN_SCOPES.REAGENTS then
+        return target.kindMap and target.kindMap.input == true
+    end
+    return true
+end
+
+---@param targets table[]?
+---@param scope string?
+---@return table[]
+function Scanner:GetTargetsForScanScope(targets, scope)
+    return ns.Filter(targets or {}, function(target)
+        return self:TargetMatchesScanScope(target, scope)
+    end)
 end
 
 ---@param profession string
@@ -1780,7 +1825,7 @@ function Scanner:UpdateProgressText()
     local priced = #self.priceResults
     local missing = self:GetMissingDisplayCount()
     if self.scanComplete then
-        self.panel.progressText:SetText(string.format("%d priced, %d missing", priced, missing))
+        self.panel.progressText:SetText(string.format("%d priced, %d unpriced", priced, missing))
     else
         self.panel.progressText:SetText("")
     end
@@ -1795,7 +1840,7 @@ function Scanner:UpdateMissingButton()
     local missing = self:GetMissingDisplayCount()
     local showMissing = self.scanComplete and not self.isScanning and missing > 0
 
-    panel.missingButton:SetText("Missing (" .. tostring(missing) .. ")")
+    panel.missingButton:SetText("Unpriced (" .. tostring(missing) .. ")")
     panel.missingButton:Show()
     SetButtonEnabled(panel.missingButton, showMissing)
 end
@@ -1857,6 +1902,16 @@ function Scanner:UpdateButtons()
     SetButtonEnabled(panel.configureButton, not self.isScanning and self:HasSelectedProfession())
     for _, checkbox in pairs(self.professionCheckboxes) do
         SetButtonEnabled(checkbox, not self.isScanning)
+    end
+    if self.configPanel then
+        self:UpdateScanScopeButtons()
+        SetButtonEnabled(self.configPanel.presetButton, not self.isScanning)
+        SetButtonEnabled(self.configPanel.selectAllButton, not self.isScanning)
+        SetButtonEnabled(self.configPanel.clearAllButton, not self.isScanning)
+        SetButtonEnabled(self.configPanel.treeExpansionButton, not self.isScanning)
+        SetButtonEnabled(self.configPanel.professionButton, not self.isScanning)
+        SetButtonEnabled(self.configPanel.searchBox, not self.isScanning)
+        SetButtonEnabled(self.configPanel.selectedOnlyCheckbox, not self.isScanning)
     end
     self:UpdateMissingButton()
 end

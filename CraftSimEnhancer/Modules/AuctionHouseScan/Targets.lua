@@ -340,6 +340,7 @@ function Scanner:BuildScanTargets(options)
 
     local targetsByKey = {}
     local targets = {}
+    local includeReagents = options.ignoreScanScope or Config:GetScanScope() ~= self.SCAN_SCOPES.PRODUCTS
 
     for _, recipe in ipairs(recipes) do
         local includeProfession = recipe.profession and
@@ -349,7 +350,7 @@ function Scanner:BuildScanTargets(options)
             for _, output in ipairs(recipe.outputs or {}) do
                 hasScannableOutput = self:AddOutputTargets(recipe, output, targetsByKey, targets) or hasScannableOutput
             end
-            if hasScannableOutput then
+            if hasScannableOutput and includeReagents then
                 for _, reagent in ipairs(recipe.reagents or {}) do
                     self:AddReagentTargets(recipe, reagent, targetsByKey, targets, {
                         skipFixedPrices = options.skipFixedPrices,
@@ -369,6 +370,10 @@ function Scanner:BuildScanTargets(options)
         targets = ns.Filter(targets, function(target)
             return Config:IsTargetSelected(target.key)
         end)
+    end
+
+    if not options.ignoreScanScope then
+        targets = self:GetTargetsForScanScope(targets)
     end
 
     return targets
