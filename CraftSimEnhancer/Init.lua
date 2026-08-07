@@ -38,6 +38,7 @@ local function PrintHelp()
     ns:Print("/cse reset confirm - reset only CraftSim Enhancer settings")
     ns:Print("/cse module <scan|tooltip|vendor|notice> <on|off> - set a module for the next reload")
     ns:Print("/cse scan - open the Auction House scanner")
+    ns:Print("/cse_scanqty <quantity> - set the reagent pricing sample quantity (5-1000)")
     ns:Print("/cse vendor - show Vendor Materials or refresh Vendor Buy at an open merchant")
 end
 
@@ -50,6 +51,7 @@ local function PrintStatus()
     ns:Print("WoW interface tested against: " .. tostring(ns.Compat.WoW.testedInterface))
     ns:Print("Debug: " .. tostring(ns.Debug:IsEnabled()))
     ns:Print("Migration: " .. ns.Config:GetMigrationStatus())
+    ns:Print("Reagent scan sample quantity: " .. tostring(ns.Config.AuctionHouseScan:GetFillQuantity()))
     for _, name in ipairs(ns.ModuleOrder) do
         local status = ns.ModuleStatus[name]
         local summary = status.initialized and "initialized" or (status.error or "not initialized")
@@ -80,6 +82,38 @@ local function WarnForUntestedVersions()
             "Running CraftSim " .. craftSimVersion .. "; tested against " .. testedCraftSimVersion ..
             ". Capability checks passed, but internal behavior may have changed.")
     end
+end
+
+local function HandleScanQuantityCommand(message)
+    local argument = string.match(message or "", "^%s*(.-)%s*$")
+    local config = ns.Config.AuctionHouseScan
+    local minimum, maximum = config:GetFillQuantityLimits()
+
+    if argument == "" then
+        ns:Print("Reagent scan sample quantity: " .. tostring(config:GetFillQuantity()))
+        ns:Print(string.format("Usage: /cse_scanqty <quantity> (%d-%d)", minimum, maximum))
+        return
+    end
+
+    if not string.match(argument, "^%d+$") then
+        ns:Print(string.format("Scan quantity must be a whole number from %d to %d.", minimum, maximum))
+        return
+    end
+
+    local quantity = tonumber(argument)
+    if not quantity or quantity < minimum or quantity > maximum then
+        ns:Print(string.format("Scan quantity must be a whole number from %d to %d.", minimum, maximum))
+        return
+    end
+
+    local scanner = ns.Modules.AuctionHouseScan
+    if scanner and scanner.isScanning then
+        ns:Print("The scan quantity cannot be changed while a scan is running.")
+        return
+    end
+
+    config:SaveFillQuantity(quantity)
+    ns:Print("Reagent scan sample quantity set to " .. tostring(config:GetFillQuantity()) .. ".")
 end
 
 local function HandleSlashCommand(message)
@@ -125,6 +159,8 @@ local function HandleSlashCommand(message)
         else
             ns:Print("AuctionHouseScan is unavailable. Use /cse status for details.")
         end
+    elseif command == "scanqty" then
+        HandleScanQuantityCommand(remainder)
     elseif command == "vendor" then
         local module = ns.Modules.VendorBuy
         if module and ns.ModuleStatus.VendorBuy.initialized then
@@ -161,6 +197,8 @@ eventFrame:SetScript("OnEvent", function(_, _, loadedAddon)
 
     SLASH_CRAFTSIMENHANCER1 = "/cse"
     SlashCmdList.CRAFTSIMENHANCER = HandleSlashCommand
+    SLASH_CRAFTSIMENHANCERSCANQTY1 = "/cse_scanqty"
+    SlashCmdList.CRAFTSIMENHANCERSCANQTY = HandleScanQuantityCommand
     ns.initialized = compatible == true
     ns:Print(ns.L.ADDON_LOADED)
     eventFrame:UnregisterEvent("ADDON_LOADED")

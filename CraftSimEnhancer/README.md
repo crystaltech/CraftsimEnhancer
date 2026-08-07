@@ -42,6 +42,7 @@ This release was tested with World of Warcraft Retail interface 120007 (12.0.7) 
 - `/cse status` — show versions, module states, migration status, and compatibility warnings.
 - `/cse debug` — toggle diagnostic output.
 - `/cse scan` — open CSE Recon at the Auction House.
+- `/cse_scanqty <quantity>` — set how many reagent units (5–1000, default 20) are sampled for scan pricing. `/cse scanqty <quantity>` is also accepted.
 - `/cse vendor` — reopen or refresh Vendor Materials.
 - `/cse module <scan|tooltip|vendor|notice> <on|off>` — change a module state after `/reload`.
 - `/cse reset confirm` — reset only CraftSim Enhancer settings.

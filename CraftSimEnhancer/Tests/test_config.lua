@@ -59,6 +59,26 @@ local function testExistingInstallMigratesSavedFillQuantity()
         "existing install schedules orphaned override cleanup")
 end
 
+local function testFillQuantityCanBeChangedWithinSafeLimits()
+    CraftSimEnhancerDB = nil
+    CraftSimDB = nil
+
+    namespace.Config:Initialize()
+    local config = namespace.Config.AuctionHouseScan
+    local minimum, maximum = config:GetFillQuantityLimits()
+    assertEqual(minimum, 5, "minimum fill quantity")
+    assertEqual(maximum, 1000, "maximum fill quantity")
+
+    config:SaveFillQuantity(75)
+    assertEqual(config:GetFillQuantity(), 75, "saved fill quantity")
+
+    config:SaveFillQuantity(1)
+    assertEqual(config:GetFillQuantity(), 5, "fill quantity lower bound")
+
+    config:SaveFillQuantity(5000)
+    assertEqual(config:GetFillQuantity(), 1000, "fill quantity upper bound")
+end
+
 local function testLegacySelectionMigratesToExplicitAllowlist()
     CraftSimEnhancerDB = {
         migrationVersion = 2,
@@ -99,6 +119,7 @@ end
 
 testNewInstallUsesSmallBatchFillQuantity()
 testExistingInstallMigratesSavedFillQuantity()
+testFillQuantityCanBeChangedWithinSafeLimits()
 testLegacySelectionMigratesToExplicitAllowlist()
 
 print("Config tests passed")

@@ -4,6 +4,8 @@ local Config = ns.Config
 local CURRENT_SCHEMA_VERSION = 5
 local CURRENT_MIGRATION_VERSION = 5
 local DEFAULT_FILL_QUANTITY = 20
+local MIN_FILL_QUANTITY = 5
+local MAX_FILL_QUANTITY = 1000
 local DEFAULT_SCAN_SCOPE = "BOTH"
 
 local DEFAULTS = {
@@ -136,8 +138,9 @@ function Config:RunMigrations(isNewInstall)
     end
 
     if migrationVersion < 2 then
-        -- Fill quantity is no longer user-configurable. Keep existing installs
-        -- aligned with the fixed small-batch pricing quantity.
+        -- Older saved quantities used different pricing behavior. Keep those
+        -- installs aligned with the current small-batch default; users can
+        -- choose a new quantity with the scan-quantity slash command.
         self.db.global.auctionHouseScan.fillQuantity = DEFAULT_FILL_QUANTITY
         self.migrationStatus = "input fill quantity updated"
     end
@@ -228,9 +231,15 @@ function Config.AuctionHouseScan:GetFillQuantity()
     return tonumber(self:GetData().fillQuantity) or DEFAULT_FILL_QUANTITY
 end
 
+---@return number minimum
+---@return number maximum
+function Config.AuctionHouseScan:GetFillQuantityLimits()
+    return MIN_FILL_QUANTITY, MAX_FILL_QUANTITY
+end
+
 function Config.AuctionHouseScan:SaveFillQuantity(fillQuantity)
     fillQuantity = tonumber(fillQuantity) or DEFAULT_FILL_QUANTITY
-    self:GetData().fillQuantity = math.max(5, math.min(1000, math.floor(fillQuantity)))
+    self:GetData().fillQuantity = math.max(MIN_FILL_QUANTITY, math.min(MAX_FILL_QUANTITY, math.floor(fillQuantity)))
 end
 
 function Config.AuctionHouseScan:EnsureSelectedProfessions(defaultSelectedProfessions)
