@@ -21,8 +21,8 @@ This release was tested with World of Warcraft Retail interface 120007 (12.0.7) 
 
 1. Enable **Update Last Crafting Cost DB** in CraftSim's Recipe Scan or Craft Lists options and run a CraftSim scan once.
 2. Open the Auction House and select **CSE Recon**.
-3. Choose **Crafted products**, **Required reagents**, or both, then select recipes or an exact list under **Individual Items**. Shared items remain selected while any selected recipe needs them.
-4. Click **Scan Now**, review **Unpriced Items**, and click **Push Overrides**.
+3. Choose **Products + reagents**, **Crafted products**, or **Required reagents**, then use the persistent **Recipes** or **Individual items** tab. A recipe-tree change resets individual overrides within that branch, while shared items remain selected when another selected recipe needs them. The summary labels recipe counts and generated price-target counts separately.
+4. Click **Scan Now**, review **Unpriced Items**, use **Skip future** for unwanted targets, and click **Push Overrides**.
 5. Create a CraftSim Auctionator shopping list. Vendor items are separated into the **Vendor Materials** window.
 6. Buy Auction House materials first, then visit the listed vendors and use **Buy Vendor Mats**.
 

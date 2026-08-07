@@ -1,8 +1,8 @@
 local _, ns = ...
 
 local Config = ns.Config
-local CURRENT_SCHEMA_VERSION = 4
-local CURRENT_MIGRATION_VERSION = 4
+local CURRENT_SCHEMA_VERSION = 5
+local CURRENT_MIGRATION_VERSION = 5
 local DEFAULT_FILL_QUANTITY = 20
 local DEFAULT_SCAN_SCOPE = "BOTH"
 
@@ -29,6 +29,7 @@ local DEFAULTS = {
             selectedRecipes = {},
             targetSelectionOverrides = {},
             recipeSelectionMode = "explicit",
+            recipeOverrideCleanupPending = false,
             configProfession = "ALL",
         },
         vendorPlan = {
@@ -172,6 +173,17 @@ function Config:RunMigrations(isNewInstall)
         end
     end
 
+    if migrationVersion < 5 then
+        local target = self.db.global.auctionHouseScan
+        -- Version 1.3 could retain positive item overrides for recipes that
+        -- were no longer selected. Clean those once the full recipe catalog
+        -- is available, while preserving explicit exclusions.
+        target.recipeOverrideCleanupPending = not isNewInstall
+        if not isNewInstall then
+            self.migrationStatus = "recipe override cleanup awaiting catalog"
+        end
+    end
+
     self.db.migrationVersion = CURRENT_MIGRATION_VERSION
     self.db.migrationStatus = self.migrationStatus
 end
@@ -290,6 +302,22 @@ end
 
 function Config.AuctionHouseScan:SaveTargetSelectionOverride(targetKey, selected)
     self:GetTargetSelectionOverrides()[targetKey] = selected == true
+end
+
+function Config.AuctionHouseScan:ClearTargetSelectionOverride(targetKey)
+    self:GetTargetSelectionOverrides()[targetKey] = nil
+end
+
+function Config.AuctionHouseScan:NeedsRecipeOverrideCleanup()
+    return self:GetData().recipeOverrideCleanupPending == true
+end
+
+function Config.AuctionHouseScan:CompleteRecipeOverrideCleanup()
+    local data = self:GetData()
+    data.recipeOverrideCleanupPending = false
+    Config.migrationStatus = "orphaned recipe item overrides cleaned"
+    Config.db.migrationStatus = Config.migrationStatus
+    data.selectionMigrationStatus = Config.migrationStatus
 end
 
 function Config.AuctionHouseScan:IsRecipeSelectionExplicit()

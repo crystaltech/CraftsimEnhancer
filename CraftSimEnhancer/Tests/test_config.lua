@@ -24,12 +24,14 @@ local function testNewInstallUsesSmallBatchFillQuantity()
     namespace.Config:Initialize()
 
     assertEqual(namespace.Config.AuctionHouseScan:GetFillQuantity(), 20, "new-install fill quantity")
-    assertEqual(CraftSimEnhancerDB.migrationVersion, 4, "new-install migration version")
+    assertEqual(CraftSimEnhancerDB.migrationVersion, 5, "new-install migration version")
     assertEqual(namespace.Config.AuctionHouseScan:GetScanScope(), "BOTH", "new-install scan scope")
     assertEqual(CraftSimEnhancerDB.global.auctionHouseScan.targetSelectionMode, "explicit",
         "new-install explicit target selection")
     assertEqual(CraftSimEnhancerDB.global.auctionHouseScan.recipeSelectionMode, "explicit",
         "new-install explicit recipe selection")
+    assertEqual(namespace.Config.AuctionHouseScan:NeedsRecipeOverrideCleanup(), false,
+        "new install does not need recipe override cleanup")
     assertEqual(namespace.Config.AuctionHouseScan:IsTargetSelected("new-target"), false,
         "new-install target starts unselected")
 end
@@ -48,11 +50,13 @@ local function testExistingInstallMigratesSavedFillQuantity()
     namespace.Config:Initialize()
 
     assertEqual(namespace.Config.AuctionHouseScan:GetFillQuantity(), 20, "migrated fill quantity")
-    assertEqual(CraftSimEnhancerDB.migrationVersion, 4, "updated migration version")
+    assertEqual(CraftSimEnhancerDB.migrationVersion, 5, "updated migration version")
     assertEqual(CraftSimEnhancerDB.global.auctionHouseScan.targetSelectionMode, "legacy-exclude",
         "existing install waits for complete catalog")
     assertEqual(CraftSimEnhancerDB.global.auctionHouseScan.recipeSelectionMode, "target-allowlist",
         "existing install waits for recipe catalog")
+    assertEqual(namespace.Config.AuctionHouseScan:NeedsRecipeOverrideCleanup(), true,
+        "existing install schedules orphaned override cleanup")
 end
 
 local function testLegacySelectionMigratesToExplicitAllowlist()
@@ -89,6 +93,8 @@ local function testLegacySelectionMigratesToExplicitAllowlist()
     assertEqual(config:IsRecipeSelectionExplicit(), true, "recipe selection migration completed")
     assertEqual(config:IsRecipeSelected("id:100"), true, "selected recipe retained")
     assertEqual(config:GetTargetSelectionOverride("item-b"), false, "false item override retained")
+    config:ClearTargetSelectionOverride("item-b")
+    assertEqual(config:GetTargetSelectionOverride("item-b"), nil, "item override can be reset by recipe action")
 end
 
 testNewInstallUsesSmallBatchFillQuantity()

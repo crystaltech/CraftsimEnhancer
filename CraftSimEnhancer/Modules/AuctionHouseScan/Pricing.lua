@@ -249,15 +249,15 @@ function Scanner:FinishScan()
     self.pendingTimeoutToken = self.pendingTimeoutToken + 1
     self.pendingPollToken = self.pendingPollToken + 1
     self.scanComplete = true
-    self:SetStatus(string.format("Scan complete. %d prices ready, %d unpriced. Press Push Overrides to apply.",
-        #self.priceResults, self:GetMissingDisplayCount()))
+    local pricedTargets, unpricedTargets, processedTargets, groupedItems = self:GetScanOutcomeCounts()
+    self:SetStatus("Scan complete. Press Push Overrides to apply.")
     self:UpdateProgressText()
     self:UpdateButtons()
     if self.missingPanel and self.missingPanel:IsShown() then
         self:UpdateMissingList()
     end
-    SystemPrint(string.format("Scan complete: %d prices found, %d unpriced.", #self.priceResults,
-        self:GetMissingDisplayCount()))
+    SystemPrint(string.format("Scan complete: %d/%d price targets processed; %d priced, %d unpriced (%d grouped items).",
+        processedTargets, self.totalTargets, pricedTargets, unpricedTargets, groupedItems))
 end
 
 ---@param reason string?

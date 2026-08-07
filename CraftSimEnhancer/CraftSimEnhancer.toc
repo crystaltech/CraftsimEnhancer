@@ -3,7 +3,7 @@
 ## Category: Professions
 ## Notes: Adds custom enhancements and additional features to CraftSim.
 ## Author: Crystal_Tech
-## Version: 1.3
+## Version: 1.4
 ## RequiredDeps: CraftSim
 ## SavedVariables: CraftSimEnhancerDB
 

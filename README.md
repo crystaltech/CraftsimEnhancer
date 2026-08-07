@@ -72,12 +72,14 @@ Do not place `CraftSimEnhancer` inside the `CraftSim` folder.
 1. In CraftSim's Recipe Scan or Craft Lists options, enable **Update Last Crafting Cost DB** and run a CraftSim scan once. This supplies costs for break-even estimates and tooltips.
 2. Open the Auction House and select the **CSE Recon** tab.
 3. Choose whether to scan **Crafted products**, **Required reagents**, or both.
-4. Select professions and recipes, or use **Individual Items** to build an exact list. Shared items remain selected while any selected recipe needs them, and the summary shows every unique Auction House search that will run.
-5. Review any **Unpriced Items** and click **Push Overrides** when the scan completes.
+4. Select professions, then use the persistent **Recipes** or **Individual items** tab to build the list. A recipe-tree change resets individual overrides within that branch, while shared items remain selected when another selected recipe needs them. The summary distinguishes selected recipes from the unique product, rank, and reagent price targets they produce.
+5. Review any **Unpriced Items**, use **Skip future** for unwanted targets, and click **Push Overrides** when the scan completes.
 6. Use CraftSim normally to choose crafts and create its Auctionator shopping list.
 7. Buy the Auction House materials first, then visit vendors listed in the **Vendor Materials** window.
 
 Large scans are intentionally paced around Blizzard's Auction House throttle and can take several minutes. Keep the Auction House open until the scan finishes or cancel it before leaving.
+
+Completed-scan totals use price targets throughout, so priced plus unpriced always equals processed. The **Unpriced items** button separately reports grouped review rows because several ranks or variants can share one row.
 
 ## Pricing behavior
 

@@ -10,6 +10,11 @@ local SMALL_AUCTION_HOUSE_TAB_PADDING = Shared.SmallAuctionHouseTabPadding
 local SMALL_AUCTION_HOUSE_TAB_MIN_WIDTH = Shared.SmallAuctionHouseTabMinWidth
 local ESTIMATED_RESULT_SOURCE = Shared.EstimatedResultSource
 local SetButtonEnabled = Shared.SetButtonEnabled
+local CreateNativeActionButton = Shared.CreateNativeActionButton
+local CreateNativeHeaderBand = Shared.CreateNativeHeaderBand
+local CreateNativeListWell = Shared.CreateNativeListWell
+local NATIVE_ROCK_TEXTURE = Shared.NativeRockTexture
+local NATIVE_INSET_BACKDROP = Shared.NativeInsetBackdrop
 
 function Scanner:GetAuctionHouseTabLibrary()
     if not LibStub then
@@ -261,8 +266,7 @@ function Scanner:CreateProfessionCheckbox(parent, professionInfo, y)
     checkbox.text:SetText(self:GetProfessionLabel(professionInfo))
     checkbox:SetScript("OnClick", function(selfCheckbox)
         Config:SaveProfessionSelected(professionInfo.name, selfCheckbox:GetChecked())
-        Scanner.scanComplete = false
-        Scanner.overridesPushed = false
+        Scanner:InvalidateScanConfiguration()
         wipe(Scanner.priceResults)
         wipe(Scanner.missingResults)
         if Scanner.activeView == "missing" then
@@ -290,36 +294,50 @@ function Scanner:CreatePanel()
 
     panel.background = panel:CreateTexture(nil, "BACKGROUND")
     panel.background:SetAllPoints(panel)
-    panel.background:SetColorTexture(0.035, 0.035, 0.035, 0.96)
+    panel.background:SetTexture(NATIVE_ROCK_TEXTURE)
+    panel.background:SetHorizTile(true)
+    panel.background:SetVertTile(true)
+    panel.background:SetVertexColor(0.50, 0.49, 0.47, 0.98)
 
     panel.leftPane = CreateFrame("Frame", nil, panel, "BackdropTemplate")
     panel.leftPane:SetPoint("TOPLEFT", panel, "TOPLEFT", 4, -4)
     panel.leftPane:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 4, 4)
     panel.leftPane:SetWidth(198)
-    panel.leftPane:SetBackdrop({
-        bgFile = "Interface\\Buttons\\WHITE8X8",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true,
-        tileSize = 16,
-        edgeSize = 12,
-        insets = { left = 3, right = 3, top = 3, bottom = 3 },
-    })
-    panel.leftPane:SetBackdropColor(0.025, 0.025, 0.025, 0.94)
-    panel.leftPane:SetBackdropBorderColor(0.35, 0.35, 0.35, 0.8)
+    panel.leftPane:SetBackdrop(NATIVE_INSET_BACKDROP)
+    panel.leftPane:SetBackdropColor(0.72, 0.70, 0.67, 0.96)
+    panel.leftPane:SetBackdropBorderColor(0.42, 0.42, 0.42, 0.9)
 
     panel.contentHost = CreateFrame("Frame", nil, panel, "BackdropTemplate")
-    panel.contentHost:SetPoint("TOPLEFT", panel.leftPane, "TOPRIGHT", 6, 0)
+    panel.contentHost:SetPoint("TOPLEFT", panel.leftPane, "TOPRIGHT", 3, 0)
     panel.contentHost:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -4, 4)
-    panel.contentHost:SetBackdrop({
-        bgFile = "Interface\\Buttons\\WHITE8X8",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true,
-        tileSize = 16,
-        edgeSize = 12,
-        insets = { left = 3, right = 3, top = 3, bottom = 3 },
-    })
-    panel.contentHost:SetBackdropColor(0.025, 0.025, 0.025, 0.94)
-    panel.contentHost:SetBackdropBorderColor(0.35, 0.35, 0.35, 0.8)
+    panel.contentHost:SetBackdrop(NATIVE_INSET_BACKDROP)
+    panel.contentHost:SetBackdropColor(0.72, 0.70, 0.67, 0.96)
+    panel.contentHost:SetBackdropBorderColor(0.42, 0.42, 0.42, 0.9)
+
+    panel.columnDivider = CreateFrame("Frame", nil, panel)
+    panel.columnDivider:SetPoint("TOPLEFT", panel.leftPane, "TOPRIGHT", 1, -5)
+    panel.columnDivider:SetPoint("BOTTOMLEFT", panel.leftPane, "BOTTOMRIGHT", 1, 5)
+    panel.columnDivider:SetWidth(2)
+
+    panel.columnDivider.fill = panel.columnDivider:CreateTexture(nil, "ARTWORK")
+    panel.columnDivider.fill:SetAllPoints(panel.columnDivider)
+    panel.columnDivider.fill:SetColorTexture(0.13, 0.12, 0.10, 0.66)
+
+    panel.columnDivider.highlight = panel.columnDivider:CreateTexture(nil, "OVERLAY")
+    panel.columnDivider.highlight:SetPoint("TOPLEFT", panel.columnDivider, "TOPLEFT", 0, 1)
+    panel.columnDivider.highlight:SetPoint("BOTTOMLEFT", panel.columnDivider, "BOTTOMLEFT", 0, -1)
+    panel.columnDivider.highlight:SetWidth(1)
+    panel.columnDivider.highlight:SetColorTexture(0.48, 0.45, 0.38, 0.34)
+
+    panel.columnDivider.shadow = panel.columnDivider:CreateTexture(nil, "OVERLAY")
+    panel.columnDivider.shadow:SetPoint("TOPRIGHT", panel.columnDivider, "TOPRIGHT", 0, 1)
+    panel.columnDivider.shadow:SetPoint("BOTTOMRIGHT", panel.columnDivider, "BOTTOMRIGHT", 0, -1)
+    panel.columnDivider.shadow:SetWidth(1)
+    panel.columnDivider.shadow:SetColorTexture(0.02, 0.02, 0.02, 0.55)
+
+    panel.leftHeaderBand = CreateNativeHeaderBand(panel.leftPane, 42)
+    panel.leftHeaderBand:SetPoint("TOPLEFT", panel.leftPane, "TOPLEFT", 5, -5)
+    panel.leftHeaderBand:SetPoint("TOPRIGHT", panel.leftPane, "TOPRIGHT", -5, -5)
 
     panel.title = panel.leftPane:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     panel.title:SetPoint("TOP", panel.leftPane, "TOP", 0, -14)
@@ -331,7 +349,7 @@ function Scanner:CreatePanel()
     panel.professionsLabel:SetPoint("TOP", panel.title, "BOTTOM", 0, -4)
     panel.professionsLabel:SetWidth(178)
     panel.professionsLabel:SetJustifyH("CENTER")
-    panel.professionsLabel:SetText("Choose what to include")
+    panel.professionsLabel:SetText("Choose professions to scan")
 
     self:EnsureProfessionSelectionForCurrentCrafter()
     wipe(self.professionCheckboxes)
@@ -341,6 +359,12 @@ function Scanner:CreatePanel()
         self.professionCheckboxes[professionInfo.name] = checkbox
         y = y - 24
     end
+
+    panel.scanDivider = panel.leftPane:CreateTexture(nil, "ARTWORK")
+    panel.scanDivider:SetPoint("TOPLEFT", panel.leftPane, "TOPLEFT", 12, y - 4)
+    panel.scanDivider:SetPoint("TOPRIGHT", panel.leftPane, "TOPRIGHT", -12, y - 4)
+    panel.scanDivider:SetHeight(1)
+    panel.scanDivider:SetColorTexture(0.58, 0.52, 0.38, 0.35)
 
     panel.scanLabel = panel.leftPane:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     panel.scanLabel:SetPoint("TOP", panel.leftPane, "TOP", 0, y - 10)
@@ -363,19 +387,50 @@ function Scanner:CreatePanel()
         end
     end)
 
-    panel.missingButton = CreateFrame("Button", nil, panel.leftPane, "UIPanelButtonTemplate")
-    panel.missingButton:SetSize(164, 24)
+    panel.missingButton = CreateNativeActionButton(panel.leftPane, 164, 24)
     panel.missingButton:SetPoint("TOP", panel.scanButton, "BOTTOM", 0, -6)
-    panel.missingButton:SetText("Unpriced (0)")
+    panel.missingButton:SetText("Unpriced items (0)")
     panel.missingButton:SetScript("OnClick", function()
         Scanner:ToggleMissingPanel()
     end)
+    local function showMissingButtonTooltip(owner)
+        local _, unpricedTargets, _, groupedItems = Scanner:GetScanOutcomeCounts()
+        GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("Unpriced Items")
+        GameTooltip:AddLine(string.format("%d grouped review %s cover %d unpriced price %s.",
+            groupedItems, Scanner:Pluralize(groupedItems, "row"),
+            unpricedTargets, Scanner:Pluralize(unpricedTargets, "target")), 1, 1, 1, true)
+        GameTooltip:AddLine("Multiple ranks or variants of the same item and status are combined into one review row.",
+            0.8, 0.8, 0.8, true)
+        GameTooltip:Show()
+    end
+    panel.missingButton:SetScript("OnEnter", showMissingButtonTooltip)
+    panel.missingButton:SetScript("OnLeave", GameTooltip_Hide)
+    panel.missingButtonHover = CreateFrame("Frame", nil, panel.leftPane)
+    panel.missingButtonHover:SetAllPoints(panel.missingButton)
+    panel.missingButtonHover:SetFrameLevel((panel.missingButton:GetFrameLevel() or 1) + 1)
+    panel.missingButtonHover:EnableMouse(true)
+    panel.missingButtonHover:SetScript("OnEnter", showMissingButtonTooltip)
+    panel.missingButtonHover:SetScript("OnLeave", GameTooltip_Hide)
+    panel.missingButtonHover:Hide()
+
+    panel.progressBar = CreateFrame("StatusBar", nil, panel.leftPane, "BackdropTemplate")
+    panel.progressBar:SetPoint("TOPLEFT", panel.missingButton, "BOTTOMLEFT", 0, -10)
+    panel.progressBar:SetSize(164, 4)
+    panel.progressBar:SetMinMaxValues(0, 1)
+    panel.progressBar:SetValue(0)
+    panel.progressBar:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
+    panel.progressBar:SetStatusBarColor(1, 0.72, 0, 0.9)
+    panel.progressBar:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8" })
+    panel.progressBar:SetBackdropColor(0.16, 0.16, 0.16, 0.9)
+    panel.progressBar:Hide()
 
     panel.progressText = panel.leftPane:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    panel.progressText:SetPoint("TOPLEFT", panel.missingButton, "BOTTOMLEFT", 0, -12)
+    panel.progressText:SetPoint("TOPLEFT", panel.progressBar, "BOTTOMLEFT", 0, -6)
     panel.progressText:SetWidth(164)
-    panel.progressText:SetHeight(14)
+    panel.progressText:SetHeight(28)
     panel.progressText:SetJustifyH("LEFT")
+    panel.progressText:SetJustifyV("TOP")
 
     panel.statusText = panel.leftPane:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     panel.statusText:SetPoint("TOPLEFT", panel.progressText, "BOTTOMLEFT", 0, -8)
@@ -453,16 +508,24 @@ function Scanner:CreateMissingPanel()
     panel.title:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -14)
     panel.title:SetText("Unpriced Items")
 
-    panel.backButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-    panel.backButton:SetSize(118, 22)
+    panel.headerBand = CreateNativeHeaderBand(panel, 44)
+    panel.headerBand:SetPoint("TOPLEFT", panel, "TOPLEFT", 5, -5)
+    panel.headerBand:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -5, -5)
+
+    panel.countText = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    panel.countText:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -38)
+    panel.countText:SetWidth(330)
+    panel.countText:SetJustifyH("LEFT")
+    panel.countText:SetText("0 grouped rows · 0 unpriced price targets")
+
+    panel.backButton = CreateNativeActionButton(panel, 118, 22)
     panel.backButton:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -16, -10)
     panel.backButton:SetText("Back to Configure")
     panel.backButton:SetScript("OnClick", function()
         Scanner:ShowPanelView("config")
     end)
 
-    panel.copyButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-    panel.copyButton:SetSize(104, 22)
+    panel.copyButton = CreateNativeActionButton(panel, 104, 22)
     panel.copyButton:SetPoint("RIGHT", panel.backButton, "LEFT", -8, 0)
     panel.copyButton:SetText("Copy Report")
     panel.copyButton:SetScript("OnClick", function()
@@ -470,17 +533,21 @@ function Scanner:CreateMissingPanel()
     end)
 
     panel.headerText = panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    panel.headerText:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -52)
+    panel.headerText:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -66)
     panel.headerText:SetText("Type          Item                              ItemID     Status             Action")
 
     panel.emptyText = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    panel.emptyText:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -78)
+    panel.emptyText:SetPoint("TOPLEFT", panel, "TOPLEFT", 18, -92)
     panel.emptyText:SetPoint("RIGHT", panel, "RIGHT", -18, 0)
     panel.emptyText:SetJustifyH("LEFT")
     panel.emptyText:SetText("No unpriced items from the latest scan.")
 
+    panel.listWell = CreateNativeListWell(panel)
+    panel.listWell:SetPoint("TOPLEFT", panel, "TOPLEFT", 10, -78)
+    panel.listWell:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -10, 10)
+
     panel.scrollFrame = CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
-    panel.scrollFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -70)
+    panel.scrollFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -84)
     panel.scrollFrame:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -32, 16)
 
     panel.scrollChild = CreateFrame("Frame", nil, panel.scrollFrame)
@@ -537,8 +604,11 @@ function Scanner:GetMissingRowTooltip(result)
     elseif result.estimateOnPush then
         table.insert(lines, "Result override on push: break-even estimate from CraftSim's saved average cost.")
     end
-    if result.excluded then
-        table.insert(lines, "Excluded from future scans.")
+    if result.skipped then
+        table.insert(lines, "Skipped in future scans.")
+        table.insert(lines, "Restore it from Individual items if you want to scan it again.")
+    else
+        table.insert(lines, "Skip future removes every grouped target for this item from later scans.")
     end
     return table.concat(lines, "\n")
 end
@@ -660,10 +730,10 @@ function Scanner:GetDisplayMissingResults()
     for _, result in ipairs(results) do
         table.sort(result.itemLevelOrder)
         table.sort(result.sourceNames)
-        result.excluded = #result.targetKeys > 0
+        result.skipped = #result.targetKeys > 0
         for _, targetKey in ipairs(result.targetKeys) do
             if Config:IsTargetSelected(targetKey) then
-                result.excluded = false
+                result.skipped = false
                 break
             end
         end
@@ -837,25 +907,21 @@ function Scanner:UpdateMissingRow(row, result)
     row.nameText:SetText(label)
     row.itemIDText:SetText(tostring(result.itemID))
     row.reasonText:SetText(result.reasonShort or self:GetMissingReasonShort(result))
-    row.excludeButton:SetText(result.excluded and "Excluded" or "Exclude")
-    SetButtonEnabled(row.excludeButton, not result.excluded)
+    row.skipButton:SetText(result.skipped and "Skipped" or "Skip future")
+    SetButtonEnabled(row.skipButton, not result.skipped)
     row.tooltipText = self:GetMissingRowTooltip(result)
 end
 
 ---@param result table?
-function Scanner:ExcludeMissingResult(result)
+function Scanner:SkipMissingResult(result)
     if not result then
         return
     end
-    local excludedCount = 0
     for _, targetKey in ipairs(result.targetKeys or {}) do
         if Config:IsTargetSelected(targetKey) then
             self:SaveIndividualTargetSelection(targetKey, false)
-            excludedCount = excludedCount + 1
         end
     end
-    self:SetStatus(string.format("Excluded %d target(s) for %s from future scans.", excludedCount,
-        tostring(result.label or result.itemID or "this item")))
     self:UpdateMissingList()
     self:UpdateButtons()
 end
@@ -869,7 +935,7 @@ function Scanner:CreateMissingRow(parent)
 
     row.bg = row:CreateTexture(nil, "BACKGROUND")
     row.bg:SetAllPoints(row)
-    row.bg:SetColorTexture(1, 1, 1, 0.03)
+    row.bg:SetColorTexture(1, 1, 1, 0.02)
 
     row.typeText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     row.typeText:SetPoint("LEFT", row, "LEFT", 2, 0)
@@ -909,20 +975,22 @@ function Scanner:CreateMissingRow(parent)
         row.reasonText:SetMaxLines(1)
     end
 
-    row.excludeButton = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
-    row.excludeButton:SetSize(72, 22)
-    row.excludeButton:SetPoint("RIGHT", row, "RIGHT", -2, 0)
-    row.excludeButton:SetScript("OnClick", function()
-        Scanner:ExcludeMissingResult(row.result)
+    row.skipButton = CreateNativeActionButton(row, 82)
+    row.skipButton:SetPoint("RIGHT", row, "RIGHT", -2, 0)
+    row.skipButton:SetScript("OnClick", function()
+        Scanner:SkipMissingResult(row.result)
     end)
 
-    row:SetScript("OnEnter", function(selfRow)
-        GameTooltip:SetOwner(selfRow, "ANCHOR_RIGHT")
+    local function showMissingTooltip(owner)
+        GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
         GameTooltip:AddLine("Unpriced AH Item")
-        GameTooltip:AddLine(selfRow.tooltipText or "", 1, 1, 1, true)
+        GameTooltip:AddLine(row.tooltipText or "", 1, 1, 1, true)
         GameTooltip:Show()
-    end)
+    end
+    row:SetScript("OnEnter", showMissingTooltip)
     row:SetScript("OnLeave", GameTooltip_Hide)
+    row.skipButton:SetScript("OnEnter", showMissingTooltip)
+    row.skipButton:SetScript("OnLeave", GameTooltip_Hide)
 
     return row
 end
@@ -939,6 +1007,13 @@ function Scanner:UpdateMissingList()
     end
 
     local displayResults = self:GetDisplayMissingResults()
+    if panel.countText then
+        local groupedRows = #displayResults
+        local unpricedTargets = #(self.missingResults or {})
+        panel.countText:SetText(string.format("%d grouped %s · %d unpriced price %s",
+            groupedRows, self:Pluralize(groupedRows, "row"),
+            unpricedTargets, self:Pluralize(unpricedTargets, "target")))
+    end
     if #displayResults == 0 then
         panel.emptyText:Show()
         panel.scrollFrame:Hide()

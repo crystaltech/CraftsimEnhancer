@@ -27,6 +27,23 @@ local AUCTION_HOUSE_TAB_PADDING = 20
 local AUCTION_HOUSE_TAB_MIN_WIDTH = 70
 local SMALL_AUCTION_HOUSE_TAB_PADDING = 0
 local SMALL_AUCTION_HOUSE_TAB_MIN_WIDTH = 36
+local NATIVE_ROCK_TEXTURE = "Interface\\FrameGeneral\\UI-Background-Rock"
+local NATIVE_INSET_BACKDROP = {
+    bgFile = NATIVE_ROCK_TEXTURE,
+    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+    tile = true,
+    tileSize = 128,
+    edgeSize = 12,
+    insets = { left = 3, right = 3, top = 3, bottom = 3 },
+}
+local NATIVE_LIST_BACKDROP = {
+    bgFile = NATIVE_ROCK_TEXTURE,
+    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+    tile = true,
+    tileSize = 128,
+    edgeSize = 10,
+    insets = { left = 3, right = 3, top = 3, bottom = 3 },
+}
 
 Scanner.button = nil
 Scanner.panel = nil
@@ -40,13 +57,11 @@ Scanner.activeView = "config"
 Scanner.professionCheckboxes = {}
 Scanner.configRows = {}
 Scanner.configTargets = {}
-Scanner.presetRows = {}
-Scanner.configView = "presets"
-Scanner.expandedQuickSetGroups = {}
+Scanner.recipeRows = {}
+Scanner.configView = "recipes"
 Scanner.expandedProfessionGroups = {}
 Scanner.expandedCategoryGroups = {}
 Scanner.missingRows = {}
-Scanner.activeConfigPresets = {}
 Scanner.itemSearchText = ""
 Scanner.showSelectedItemsOnly = false
 Scanner.isScanning = false
@@ -77,488 +92,10 @@ Scanner.PROFESSIONS = {
     { name = "Tailoring",      enum = Enum.Profession.Tailoring },
 }
 
-Scanner.PRESET_IDS = {
-    ALL = "ALL",
-    NONE = "NONE",
-    INPUTS = "INPUTS",
-    OUTPUTS = "OUTPUTS",
-    COMMODITIES = "COMMODITIES",
-    EQUIPMENT = "EQUIPMENT",
-    ARMOR = "ARMOR",
-    ARMOR_CLOTH = "ARMOR_CLOTH",
-    ARMOR_LEATHER = "ARMOR_LEATHER",
-    ARMOR_MAIL = "ARMOR_MAIL",
-    ARMOR_PLATE = "ARMOR_PLATE",
-    JEWELRY = "JEWELRY",
-    SHIELDS = "SHIELDS",
-    CLOAKS = "CLOAKS",
-    WEAPONS = "WEAPONS",
-    ONE_HAND_WEAPONS = "ONE_HAND_WEAPONS",
-    TWO_HAND_WEAPONS = "TWO_HAND_WEAPONS",
-    RANGED_WEAPONS = "RANGED_WEAPONS",
-    PROFESSION_TOOLS = "PROFESSION_TOOLS",
-    ENCHANTS = "ENCHANTS",
-    WEAPON_ENCHANTS = "WEAPON_ENCHANTS",
-    RING_ENCHANTS = "RING_ENCHANTS",
-    ARMOR_ENCHANTS = "ARMOR_ENCHANTS",
-    TOOL_ENCHANTS = "TOOL_ENCHANTS",
-    ARMOR_KITS = "ARMOR_KITS",
-    SPELLTHREADS = "SPELLTHREADS",
-    GEMS = "GEMS",
-    RAID_CONSUMABLES = "RAID_CONSUMABLES",
-    CONSUMABLES = "CONSUMABLES",
-    POTIONS = "POTIONS",
-    FLASKS_PHIALS = "FLASKS_PHIALS",
-    FOOD_FEASTS = "FOOD_FEASTS",
-    VANTUS_RUNES = "VANTUS_RUNES",
-    BANDAGES = "BANDAGES",
-    TEMPORARY_ENHANCEMENTS = "TEMPORARY_ENHANCEMENTS",
-    MATERIALS = "MATERIALS",
-    HERBS = "HERBS",
-    ORE_STONE = "ORE_STONE",
-    CLOTH_MATERIALS = "CLOTH_MATERIALS",
-    LEATHER_MATERIALS = "LEATHER_MATERIALS",
-    COOKING_MATERIALS = "COOKING_MATERIALS",
-    ELEMENTAL_MATERIALS = "ELEMENTAL_MATERIALS",
-    ENCHANTING_MATERIALS = "ENCHANTING_MATERIALS",
-    ENGINEERING_PARTS = "ENGINEERING_PARTS",
-    JEWELCRAFTING_MATERIALS = "JEWELCRAFTING_MATERIALS",
-    INSCRIPTION_MATERIALS = "INSCRIPTION_MATERIALS",
-    OPTIONAL_REAGENTS = "OPTIONAL_REAGENTS",
-    FINISHING_REAGENTS = "FINISHING_REAGENTS",
-    CONTAINERS = "CONTAINERS",
-    BAGS = "BAGS",
-    REAGENT_BAGS = "REAGENT_BAGS",
-    HOUSING = "HOUSING",
-    CONTRACTS = "CONTRACTS",
-    DARKMOON_CARDS = "DARKMOON_CARDS",
-    COSMETICS = "COSMETICS",
-    TRANSFORMS = "TRANSFORMS",
-    TRANSMUTES = "TRANSMUTES",
-    MILLING = "MILLING",
-    PROSPECTING = "PROSPECTING",
-    SHATTER = "SHATTER",
-    ALCHEMY_REAGENTS = "ALCHEMY_REAGENTS",
-    ALLOYS = "ALLOYS",
-    WEAPON_STONES = "WEAPON_STONES",
-    INKS_PIGMENTS = "INKS_PIGMENTS",
-    MISSIVES = "MISSIVES",
-    TREATISES = "TREATISES",
-    CODEXES = "CODEXES",
-    ENGINEERING_DEVICES = "ENGINEERING_DEVICES",
-    ENGINEERING_GOGGLES = "ENGINEERING_GOGGLES",
-    SCOPES_AMMO = "SCOPES_AMMO",
-    FISH_MEAT = "FISH_MEAT",
-    JEWELCRAFTING_REFINES = "JEWELCRAFTING_REFINES",
-    LEATHERWORKING_DRUMS = "LEATHERWORKING_DRUMS",
-    TAILORING_BOLTS = "TAILORING_BOLTS",
-    COMPETITOR_GEAR = "COMPETITOR_GEAR",
-}
-
 Scanner.SCAN_SCOPES = {
     PRODUCTS = "PRODUCTS",
     REAGENTS = "REAGENTS",
     BOTH = "BOTH",
-}
-
-Scanner.PRESET_CATEGORY_TAGS = {
-    [Scanner.PRESET_IDS.EQUIPMENT] = { "armor", "weapon", "jewelry", "profession_tool", "cloak", "armor_shield" },
-    [Scanner.PRESET_IDS.ARMOR] = { "armor" },
-    [Scanner.PRESET_IDS.ARMOR_CLOTH] = { "armor_cloth" },
-    [Scanner.PRESET_IDS.ARMOR_LEATHER] = { "armor_leather" },
-    [Scanner.PRESET_IDS.ARMOR_MAIL] = { "armor_mail" },
-    [Scanner.PRESET_IDS.ARMOR_PLATE] = { "armor_plate" },
-    [Scanner.PRESET_IDS.JEWELRY] = { "jewelry" },
-    [Scanner.PRESET_IDS.SHIELDS] = { "armor_shield" },
-    [Scanner.PRESET_IDS.CLOAKS] = { "cloak" },
-    [Scanner.PRESET_IDS.WEAPONS] = { "weapon" },
-    [Scanner.PRESET_IDS.ONE_HAND_WEAPONS] = { "weapon_one_hand" },
-    [Scanner.PRESET_IDS.TWO_HAND_WEAPONS] = { "weapon_two_hand" },
-    [Scanner.PRESET_IDS.RANGED_WEAPONS] = { "weapon_ranged" },
-    [Scanner.PRESET_IDS.PROFESSION_TOOLS] = { "profession_tool" },
-    [Scanner.PRESET_IDS.ENCHANTS] = { "enchant" },
-    [Scanner.PRESET_IDS.WEAPON_ENCHANTS] = { "enchant_weapon" },
-    [Scanner.PRESET_IDS.RING_ENCHANTS] = { "enchant_ring" },
-    [Scanner.PRESET_IDS.ARMOR_ENCHANTS] = {
-        "enchant_head", "enchant_shoulder", "enchant_cloak", "enchant_chest", "enchant_wrist",
-        "enchant_hands", "enchant_waist", "enchant_legs", "enchant_feet", "enchant_shield_offhand",
-    },
-    [Scanner.PRESET_IDS.TOOL_ENCHANTS] = { "enchant_tool" },
-    [Scanner.PRESET_IDS.ARMOR_KITS] = { "armor_kit" },
-    [Scanner.PRESET_IDS.SPELLTHREADS] = { "spellthread" },
-    [Scanner.PRESET_IDS.GEMS] = { "gem" },
-    [Scanner.PRESET_IDS.RAID_CONSUMABLES] = { "raid_consumable" },
-    [Scanner.PRESET_IDS.CONSUMABLES] = { "consumable" },
-    [Scanner.PRESET_IDS.POTIONS] = { "potion" },
-    [Scanner.PRESET_IDS.FLASKS_PHIALS] = { "flask_phial" },
-    [Scanner.PRESET_IDS.FOOD_FEASTS] = { "food_feast" },
-    [Scanner.PRESET_IDS.VANTUS_RUNES] = { "vantus_rune" },
-    [Scanner.PRESET_IDS.BANDAGES] = { "bandage" },
-    [Scanner.PRESET_IDS.TEMPORARY_ENHANCEMENTS] = { "temporary_enhancement", "weapon_wrap" },
-    [Scanner.PRESET_IDS.MATERIALS] = { "material" },
-    [Scanner.PRESET_IDS.HERBS] = { "herb" },
-    [Scanner.PRESET_IDS.ORE_STONE] = { "ore_stone" },
-    [Scanner.PRESET_IDS.CLOTH_MATERIALS] = { "cloth_material" },
-    [Scanner.PRESET_IDS.LEATHER_MATERIALS] = { "leather_material" },
-    [Scanner.PRESET_IDS.COOKING_MATERIALS] = { "cooking_material" },
-    [Scanner.PRESET_IDS.ELEMENTAL_MATERIALS] = { "elemental_material" },
-    [Scanner.PRESET_IDS.ENCHANTING_MATERIALS] = { "enchanting_material" },
-    [Scanner.PRESET_IDS.ENGINEERING_PARTS] = { "engineering_part" },
-    [Scanner.PRESET_IDS.JEWELCRAFTING_MATERIALS] = { "jewelcrafting_material" },
-    [Scanner.PRESET_IDS.INSCRIPTION_MATERIALS] = { "inscription_material" },
-    [Scanner.PRESET_IDS.OPTIONAL_REAGENTS] = { "optional_reagent" },
-    [Scanner.PRESET_IDS.FINISHING_REAGENTS] = { "finishing_reagent" },
-    [Scanner.PRESET_IDS.CONTAINERS] = { "container" },
-    [Scanner.PRESET_IDS.BAGS] = { "bag" },
-    [Scanner.PRESET_IDS.REAGENT_BAGS] = { "reagent_bag" },
-    [Scanner.PRESET_IDS.HOUSING] = { "housing" },
-    [Scanner.PRESET_IDS.CONTRACTS] = { "contract" },
-    [Scanner.PRESET_IDS.DARKMOON_CARDS] = { "darkmoon_card" },
-    [Scanner.PRESET_IDS.COSMETICS] = { "cosmetic", "illusion" },
-    [Scanner.PRESET_IDS.TRANSFORMS] = { "transform" },
-    [Scanner.PRESET_IDS.TRANSMUTES] = { "transmute" },
-    [Scanner.PRESET_IDS.MILLING] = { "milling" },
-    [Scanner.PRESET_IDS.PROSPECTING] = { "prospecting" },
-    [Scanner.PRESET_IDS.SHATTER] = { "shatter" },
-    [Scanner.PRESET_IDS.ALCHEMY_REAGENTS] = { "herb", "elemental_material" },
-    [Scanner.PRESET_IDS.ALLOYS] = { "ore_stone" },
-    [Scanner.PRESET_IDS.WEAPON_STONES] = { "temporary_enhancement", "weapon_wrap" },
-    [Scanner.PRESET_IDS.INKS_PIGMENTS] = { "inscription_material" },
-    [Scanner.PRESET_IDS.ENGINEERING_GOGGLES] = { "armor_cloth", "armor_leather", "armor_mail", "armor_plate" },
-    [Scanner.PRESET_IDS.FISH_MEAT] = { "cooking_material" },
-    [Scanner.PRESET_IDS.TAILORING_BOLTS] = { "cloth_material" },
-}
-
-Scanner.PRESET_TEXT_PATTERNS = {
-    [Scanner.PRESET_IDS.ARMOR] = {
-        "armor", "armguards", "banding", "basinet", "belt", "bracer", "bracers", "breastplate",
-        "chest", "chestplate", "cloak", "cuffs", "gauntlets", "gloves", "greaves", "guards",
-        "helm", "leggings", "pauldrons", "robe", "sabatons", "shield", "shoulders", "waistguard",
-    },
-    [Scanner.PRESET_IDS.ARMOR_CLOTH] = { "cloth", "robe", "cowl", "slippers", "wraps" },
-    [Scanner.PRESET_IDS.ARMOR_LEATHER] = { "leather", "leathers", "hide", "boots", "grips" },
-    [Scanner.PRESET_IDS.ARMOR_MAIL] = { "mail", "chain", "hauberk" },
-    [Scanner.PRESET_IDS.ARMOR_PLATE] = { "plate", "breastplate", "gauntlets", "sabatons" },
-    [Scanner.PRESET_IDS.JEWELRY] = { "ring", "necklace", "amulet", "pendant", "choker", "trinket" },
-    [Scanner.PRESET_IDS.SHIELDS] = { "shield", "buckler", "bulwark" },
-    [Scanner.PRESET_IDS.CLOAKS] = { "cloak", "cape", "drape" },
-    [Scanner.PRESET_IDS.WEAPONS] = {
-        "axe", "blade", "bow", "bulwark", "claw", "dagger", "edge", "glaive", "greatsword", "gun",
-        "knife", "knuckles", "mace", "polearm", "shield", "splitter", "staff", "sword", "wand",
-        "warblade", "weapon",
-    },
-    [Scanner.PRESET_IDS.ONE_HAND_WEAPONS] = { "dagger", "fist", "knife", "mace", "sword", "warglaive", "wand" },
-    [Scanner.PRESET_IDS.TWO_HAND_WEAPONS] = { "greatsword", "polearm", "staff", "two-handed", "warblade" },
-    [Scanner.PRESET_IDS.RANGED_WEAPONS] = { "bow", "crossbow", "gun", "ranged" },
-    [Scanner.PRESET_IDS.PROFESSION_TOOLS] = {
-        "apron", "bag", "backpack", "clampers", "cover", "cutters", "fishing rod", "hardhat",
-        "hat", "knife", "multitool", "needle set", "pickaxe", "profession tool", "rod", "sickle",
-        "snippers", "toolbox", "toolset",
-    },
-    [Scanner.PRESET_IDS.ENCHANTS] = { "enchant ", "enchantment" },
-    [Scanner.PRESET_IDS.WEAPON_ENCHANTS] = { "enchant weapon", "weapon enchantment" },
-    [Scanner.PRESET_IDS.RING_ENCHANTS] = { "enchant ring", "ring enchantment" },
-    [Scanner.PRESET_IDS.ARMOR_ENCHANTS] = {
-        "enchant chest", "enchant cloak", "enchant boots", "enchant bracer", "enchant bracers",
-        "enchant gloves", "enchant helm", "enchant shoulder", "enchant shield", "armor banding",
-    },
-    [Scanner.PRESET_IDS.TOOL_ENCHANTS] = { "enchant tool", "tool enchantment" },
-    [Scanner.PRESET_IDS.ARMOR_KITS] = { "armor kit" },
-    [Scanner.PRESET_IDS.SPELLTHREADS] = { "spellthread" },
-    [Scanner.PRESET_IDS.GEMS] = {
-        "gem", "peridot", "lapis", "amethyst", "sapphire", "diamond", "emerald", "ruby", "onyx",
-        "opal", "amber", "topaz",
-    },
-    [Scanner.PRESET_IDS.RAID_CONSUMABLES] = {
-        "potion", "flask", "phial", "cauldron", "feast", "food", "rune", "enchant", "mana", "health",
-    },
-    [Scanner.PRESET_IDS.POTIONS] = { "potion" },
-    [Scanner.PRESET_IDS.FLASKS_PHIALS] = { "flask", "phial", "cauldron" },
-    [Scanner.PRESET_IDS.FOOD_FEASTS] = { "food", "feast", "meal", "banquet" },
-    [Scanner.PRESET_IDS.VANTUS_RUNES] = { "vantus rune" },
-    [Scanner.PRESET_IDS.BANDAGES] = { "bandage" },
-    [Scanner.PRESET_IDS.TEMPORARY_ENHANCEMENTS] = {
-        "oil", "razorstone", "sharpening stone", "temporary", "weapon wrap", "weightstone", "whetstone",
-    },
-    [Scanner.PRESET_IDS.HERBS] = { "herb", "flower", "blossom", "pollen" },
-    [Scanner.PRESET_IDS.ORE_STONE] = { "alloy", "bar", "ingot", "metal", "ore", "stone" },
-    [Scanner.PRESET_IDS.CLOTH_MATERIALS] = { "bolt", "cloth", "thread", "weave" },
-    [Scanner.PRESET_IDS.LEATHER_MATERIALS] = { "hide", "leather", "scale", "scales" },
-    [Scanner.PRESET_IDS.COOKING_MATERIALS] = { "meat", "fish", "spice" },
-    [Scanner.PRESET_IDS.ELEMENTAL_MATERIALS] = { "air", "earth", "elemental", "fire", "frost", "water" },
-    [Scanner.PRESET_IDS.ENCHANTING_MATERIALS] = { "crystal", "dust", "enchanting", "shard" },
-    [Scanner.PRESET_IDS.ENGINEERING_PARTS] = { "cog", "gear", "part", "parts", "sprocket", "widget" },
-    [Scanner.PRESET_IDS.JEWELCRAFTING_MATERIALS] = { "jewelcrafting", "gem", "jewel" },
-    [Scanner.PRESET_IDS.INSCRIPTION_MATERIALS] = { "ink", "inscription", "pigment" },
-    [Scanner.PRESET_IDS.OPTIONAL_REAGENTS] = { "optional reagent" },
-    [Scanner.PRESET_IDS.FINISHING_REAGENTS] = { "finishing reagent" },
-    [Scanner.PRESET_IDS.CONTAINERS] = { "bag", "backpack", "satchel", "toolbox", "toolset" },
-    [Scanner.PRESET_IDS.BAGS] = { "bag", "backpack", "satchel" },
-    [Scanner.PRESET_IDS.REAGENT_BAGS] = { "reagent bag", "reagent satchel" },
-    [Scanner.PRESET_IDS.CONTRACTS] = { "contract:" },
-    [Scanner.PRESET_IDS.DARKMOON_CARDS] = { "darkmoon card", "darkmoon deck", "darkmoon sigil" },
-    [Scanner.PRESET_IDS.COSMETICS] = { "cosmetic", "glamour", "illusion:" },
-    [Scanner.PRESET_IDS.TRANSFORMS] = { "milling", "prospect", "transmute" },
-    [Scanner.PRESET_IDS.TRANSMUTES] = { "transmute" },
-    [Scanner.PRESET_IDS.MILLING] = { "milling" },
-    [Scanner.PRESET_IDS.PROSPECTING] = { "prospect" },
-    [Scanner.PRESET_IDS.ALCHEMY_REAGENTS] = {
-        "extract", "flora", "illuminant", "mote", "herb", "rootbound", "preserving agent", "residue",
-    },
-    [Scanner.PRESET_IDS.ALLOYS] = { "alloy", "ingot", "bar", "ore", "stone" },
-    [Scanner.PRESET_IDS.WEAPON_STONES] = {
-        "whetstone", "weightstone", "razorstone", "sharpening stone", "weapon wrap",
-    },
-    [Scanner.PRESET_IDS.INKS_PIGMENTS] = { "ink", "pigment", "cipher", "codified" },
-    [Scanner.PRESET_IDS.MISSIVES] = { "missive" },
-    [Scanner.PRESET_IDS.TREATISES] = { "treatise" },
-    [Scanner.PRESET_IDS.CODEXES] = { "codex", "tome" },
-    [Scanner.PRESET_IDS.ENGINEERING_DEVICES] = {
-        "wormhole", "generator", "button", "m3ddy", "b0p", "w-47ch", "hu5h", "emergency", "beam",
-        "travel-sized", "sprocket", "cogwheel", "gadget", "keychain",
-    },
-    [Scanner.PRESET_IDS.ENGINEERING_GOGGLES] = {
-        "goggle", "goggles", "optics", "visor", "headlamp", "vision", "zoomshroud", "eye wrap",
-    },
-    [Scanner.PRESET_IDS.SCOPES_AMMO] = {
-        "scope", "shots", "boomshots", "zoomshots", "rifle", "hawkeye", "p.o.w.",
-    },
-    [Scanner.PRESET_IDS.FISH_MEAT] = {
-        "fish", "meat", "crab", "calamari", "tetra", "filet", "cutlet", "lumifin", "angler",
-        "bloomtail", "puffer", "skewer", "wings",
-    },
-    [Scanner.PRESET_IDS.JEWELCRAFTING_REFINES] = { "refine", "crushing", "prism", "glass", "stone" },
-    [Scanner.PRESET_IDS.LEATHERWORKING_DRUMS] = { "drums" },
-    [Scanner.PRESET_IDS.TAILORING_BOLTS] = { "bolt", "linen", "silk", "weave", "lining" },
-    [Scanner.PRESET_IDS.COMPETITOR_GEAR] = { "competitor" },
-}
-
-Scanner.PROFESSION_PRESET_MENUS = {
-    Alchemy = {
-        {
-            label = "Consumables",
-            presets = {
-                { label = "Potions & Mana/Health", id = Scanner.PRESET_IDS.POTIONS },
-                { label = "Flasks, Phials & Cauldrons", id = Scanner.PRESET_IDS.FLASKS_PHIALS },
-                { label = "Raid Consumables", id = Scanner.PRESET_IDS.RAID_CONSUMABLES },
-            },
-        },
-        {
-            label = "Alchemy Materials",
-            presets = {
-                { label = "Alchemy Reagents", id = Scanner.PRESET_IDS.ALCHEMY_REAGENTS },
-                { label = "Herbs", id = Scanner.PRESET_IDS.HERBS },
-                { label = "Elemental Materials", id = Scanner.PRESET_IDS.ELEMENTAL_MATERIALS },
-                { label = "Commodities", id = Scanner.PRESET_IDS.COMMODITIES },
-            },
-        },
-        {
-            label = "Special Crafts",
-            presets = {
-                { label = "Transmutes", id = Scanner.PRESET_IDS.TRANSMUTES },
-                { label = "Alchemy Trinkets", id = Scanner.PRESET_IDS.JEWELRY },
-                { label = "Profession Tools", id = Scanner.PRESET_IDS.PROFESSION_TOOLS },
-                { label = "Housing & Utility", id = Scanner.PRESET_IDS.HOUSING },
-            },
-        },
-    },
-    Blacksmithing = {
-        {
-            label = "Gear",
-            presets = {
-                { label = "Weapons", id = Scanner.PRESET_IDS.WEAPONS },
-                { label = "Plate Armor", id = Scanner.PRESET_IDS.ARMOR_PLATE },
-                { label = "Shields", id = Scanner.PRESET_IDS.SHIELDS },
-                { label = "Profession Tools", id = Scanner.PRESET_IDS.PROFESSION_TOOLS },
-                { label = "Competitor Gear", id = Scanner.PRESET_IDS.COMPETITOR_GEAR },
-            },
-        },
-        {
-            label = "Materials & Consumables",
-            presets = {
-                { label = "Alloys, Ingots & Ore", id = Scanner.PRESET_IDS.ALLOYS },
-                { label = "Weapon Stones", id = Scanner.PRESET_IDS.WEAPON_STONES },
-                { label = "Metal/Stone Inputs", id = Scanner.PRESET_IDS.ORE_STONE },
-                { label = "Commodities", id = Scanner.PRESET_IDS.COMMODITIES },
-            },
-        },
-        {
-            label = "Utility",
-            presets = {
-                { label = "Keys, Repair & Utility", id = Scanner.PRESET_IDS.TEMPORARY_ENHANCEMENTS },
-                { label = "Housing", id = Scanner.PRESET_IDS.HOUSING },
-            },
-        },
-    },
-    Cooking = {
-        {
-            label = "Food",
-            presets = {
-                { label = "Food & Feasts", id = Scanner.PRESET_IDS.FOOD_FEASTS },
-                { label = "Feasts & Raid Food", id = Scanner.PRESET_IDS.RAID_CONSUMABLES },
-                { label = "Fish, Meat & Cooking Inputs", id = Scanner.PRESET_IDS.FISH_MEAT },
-                { label = "Commodities", id = Scanner.PRESET_IDS.COMMODITIES },
-            },
-        },
-    },
-    Enchanting = {
-        {
-            label = "Enchants",
-            presets = {
-                { label = "All Enchants", id = Scanner.PRESET_IDS.ENCHANTS },
-                { label = "Weapon Enchants", id = Scanner.PRESET_IDS.WEAPON_ENCHANTS },
-                { label = "Ring Enchants", id = Scanner.PRESET_IDS.RING_ENCHANTS },
-                { label = "Armor Enchants", id = Scanner.PRESET_IDS.ARMOR_ENCHANTS },
-                { label = "Tool Enchants", id = Scanner.PRESET_IDS.TOOL_ENCHANTS },
-            },
-        },
-        {
-            label = "Materials & Utility",
-            presets = {
-                { label = "Enchanting Materials", id = Scanner.PRESET_IDS.ENCHANTING_MATERIALS },
-                { label = "Shatters", id = Scanner.PRESET_IDS.SHATTER },
-                { label = "Weapon Oils", id = Scanner.PRESET_IDS.TEMPORARY_ENHANCEMENTS },
-                { label = "Commodities", id = Scanner.PRESET_IDS.COMMODITIES },
-            },
-        },
-        {
-            label = "Cosmetics & Gear",
-            presets = {
-                { label = "Glamours & Illusions", id = Scanner.PRESET_IDS.COSMETICS },
-                { label = "Codexes & Tomes", id = Scanner.PRESET_IDS.CODEXES },
-                { label = "Wands, Focuses & Rods", id = Scanner.PRESET_IDS.WEAPONS },
-                { label = "Housing", id = Scanner.PRESET_IDS.HOUSING },
-            },
-        },
-    },
-    Engineering = {
-        {
-            label = "Parts & Devices",
-            presets = {
-                { label = "Engineering Parts", id = Scanner.PRESET_IDS.ENGINEERING_PARTS },
-                { label = "Devices & Gadgets", id = Scanner.PRESET_IDS.ENGINEERING_DEVICES },
-                { label = "Scopes, Shots & Rifles", id = Scanner.PRESET_IDS.SCOPES_AMMO },
-                { label = "Commodities", id = Scanner.PRESET_IDS.COMMODITIES },
-            },
-        },
-        {
-            label = "Gear",
-            presets = {
-                { label = "Goggles & Bracers", id = Scanner.PRESET_IDS.ENGINEERING_GOGGLES },
-                { label = "Profession Tools", id = Scanner.PRESET_IDS.PROFESSION_TOOLS },
-                { label = "Competitor Gear", id = Scanner.PRESET_IDS.COMPETITOR_GEAR },
-            },
-        },
-        {
-            label = "Housing",
-            presets = {
-                { label = "Housing & Toys", id = Scanner.PRESET_IDS.HOUSING },
-            },
-        },
-    },
-    Inscription = {
-        {
-            label = "Documents",
-            presets = {
-                { label = "Missives", id = Scanner.PRESET_IDS.MISSIVES },
-                { label = "Treatises", id = Scanner.PRESET_IDS.TREATISES },
-                { label = "Contracts", id = Scanner.PRESET_IDS.CONTRACTS },
-                { label = "Vantus Runes", id = Scanner.PRESET_IDS.VANTUS_RUNES },
-            },
-        },
-        {
-            label = "Cards & Reagents",
-            presets = {
-                { label = "Darkmoon Cards & Sigils", id = Scanner.PRESET_IDS.DARKMOON_CARDS },
-                { label = "Inks, Pigments & Ciphers", id = Scanner.PRESET_IDS.INKS_PIGMENTS },
-                { label = "Milling", id = Scanner.PRESET_IDS.MILLING },
-                { label = "Commodities", id = Scanner.PRESET_IDS.COMMODITIES },
-            },
-        },
-        {
-            label = "Gear & Housing",
-            presets = {
-                { label = "Staves, Offhands & Ranged", id = Scanner.PRESET_IDS.WEAPONS },
-                { label = "Profession Tools", id = Scanner.PRESET_IDS.PROFESSION_TOOLS },
-                { label = "Housing & Decor", id = Scanner.PRESET_IDS.HOUSING },
-            },
-        },
-    },
-    Jewelcrafting = {
-        {
-            label = "Gems & Refines",
-            presets = {
-                { label = "Gems", id = Scanner.PRESET_IDS.GEMS },
-                { label = "Jewelcrafting Materials", id = Scanner.PRESET_IDS.JEWELCRAFTING_MATERIALS },
-                { label = "Refines & Crushing", id = Scanner.PRESET_IDS.JEWELCRAFTING_REFINES },
-                { label = "Prospecting", id = Scanner.PRESET_IDS.PROSPECTING },
-                { label = "Commodities", id = Scanner.PRESET_IDS.COMMODITIES },
-            },
-        },
-        {
-            label = "Jewelry & Tools",
-            presets = {
-                { label = "Rings, Necks & Trinkets", id = Scanner.PRESET_IDS.JEWELRY },
-                { label = "Profession Tools", id = Scanner.PRESET_IDS.PROFESSION_TOOLS },
-                { label = "Housing & Decor", id = Scanner.PRESET_IDS.HOUSING },
-            },
-        },
-    },
-    Leatherworking = {
-        {
-            label = "Armor",
-            presets = {
-                { label = "Leather Armor", id = Scanner.PRESET_IDS.ARMOR_LEATHER },
-                { label = "Mail Armor", id = Scanner.PRESET_IDS.ARMOR_MAIL },
-                { label = "Armor Kits", id = Scanner.PRESET_IDS.ARMOR_KITS },
-                { label = "Competitor Gear", id = Scanner.PRESET_IDS.COMPETITOR_GEAR },
-            },
-        },
-        {
-            label = "Profession Gear & Utility",
-            presets = {
-                { label = "Profession Tools", id = Scanner.PRESET_IDS.PROFESSION_TOOLS },
-                { label = "Drums", id = Scanner.PRESET_IDS.LEATHERWORKING_DRUMS },
-                { label = "Weapon Wraps", id = Scanner.PRESET_IDS.WEAPON_STONES },
-                { label = "Housing", id = Scanner.PRESET_IDS.HOUSING },
-            },
-        },
-        {
-            label = "Materials",
-            presets = {
-                { label = "Leather, Hides & Scales", id = Scanner.PRESET_IDS.LEATHER_MATERIALS },
-                { label = "Commodities", id = Scanner.PRESET_IDS.COMMODITIES },
-            },
-        },
-    },
-    Tailoring = {
-        {
-            label = "Cloth Goods",
-            presets = {
-                { label = "Bolts & Cloth Materials", id = Scanner.PRESET_IDS.TAILORING_BOLTS },
-                { label = "Cloth Armor", id = Scanner.PRESET_IDS.ARMOR_CLOTH },
-                { label = "Cloaks", id = Scanner.PRESET_IDS.CLOAKS },
-                { label = "Competitor Gear", id = Scanner.PRESET_IDS.COMPETITOR_GEAR },
-            },
-        },
-        {
-            label = "Utility",
-            presets = {
-                { label = "Bags", id = Scanner.PRESET_IDS.BAGS },
-                { label = "Reagent Bags", id = Scanner.PRESET_IDS.REAGENT_BAGS },
-                { label = "Spellthreads", id = Scanner.PRESET_IDS.SPELLTHREADS },
-                { label = "Bandages", id = Scanner.PRESET_IDS.BANDAGES },
-                { label = "Commodities", id = Scanner.PRESET_IDS.COMMODITIES },
-            },
-        },
-        {
-            label = "Profession Gear & Housing",
-            presets = {
-                { label = "Profession Tools", id = Scanner.PRESET_IDS.PROFESSION_TOOLS },
-                { label = "Housing & Decor", id = Scanner.PRESET_IDS.HOUSING },
-            },
-        },
-    },
 }
 
 Scanner.MANUAL_ITEM_OVERRIDES = {
@@ -687,6 +224,78 @@ local function SetButtonEnabled(button, enabled)
     else
         button:Disable()
     end
+end
+
+---@param parent Frame
+---@param width number
+---@param height number?
+---@return Button
+local function CreateNativeActionButton(parent, width, height)
+    local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    button:SetSize(width, height or 22)
+    return button
+end
+
+---@param parent Frame
+---@param height number?
+---@return Frame
+local function CreateNativeHeaderBand(parent, height)
+    local band = CreateFrame("Frame", nil, parent)
+    band:SetFrameLevel(parent:GetFrameLevel() or 1)
+    band:SetHeight(height or 38)
+    band.bottomLine = band:CreateTexture(nil, "BORDER")
+    band.bottomLine:SetPoint("BOTTOMLEFT", band, "BOTTOMLEFT", 5, 0)
+    band.bottomLine:SetPoint("BOTTOMRIGHT", band, "BOTTOMRIGHT", -5, 0)
+    band.bottomLine:SetHeight(1)
+    band.bottomLine:SetColorTexture(0.48, 0.43, 0.32, 0.34)
+    return band
+end
+
+---@param parent Frame
+---@return Frame
+local function CreateNativeListWell(parent)
+    local well = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    well:SetFrameLevel(parent:GetFrameLevel() or 1)
+    well:SetBackdrop(NATIVE_LIST_BACKDROP)
+    well:SetBackdropColor(0.60, 0.59, 0.56, 0.96)
+    well:SetBackdropBorderColor(0.26, 0.25, 0.23, 0.84)
+
+    well.shadowTop = well:CreateTexture(nil, "BORDER")
+    well.shadowTop:SetPoint("TOPLEFT", well, "TOPLEFT", 5, -4)
+    well.shadowTop:SetPoint("TOPRIGHT", well, "TOPRIGHT", -5, -4)
+    well.shadowTop:SetHeight(2)
+    well.shadowTop:SetColorTexture(0.03, 0.03, 0.03, 0.42)
+
+    well.shadowTopFade = well:CreateTexture(nil, "BORDER")
+    well.shadowTopFade:SetPoint("TOPLEFT", well.shadowTop, "BOTTOMLEFT", 0, 0)
+    well.shadowTopFade:SetPoint("TOPRIGHT", well.shadowTop, "BOTTOMRIGHT", 0, 0)
+    well.shadowTopFade:SetHeight(3)
+    well.shadowTopFade:SetColorTexture(0.03, 0.03, 0.03, 0.16)
+
+    well.shadowLeft = well:CreateTexture(nil, "BORDER")
+    well.shadowLeft:SetPoint("TOPLEFT", well, "TOPLEFT", 4, -5)
+    well.shadowLeft:SetPoint("BOTTOMLEFT", well, "BOTTOMLEFT", 4, 5)
+    well.shadowLeft:SetWidth(2)
+    well.shadowLeft:SetColorTexture(0.03, 0.03, 0.03, 0.42)
+
+    well.shadowLeftFade = well:CreateTexture(nil, "BORDER")
+    well.shadowLeftFade:SetPoint("TOPLEFT", well.shadowLeft, "TOPRIGHT", 0, 0)
+    well.shadowLeftFade:SetPoint("BOTTOMLEFT", well.shadowLeft, "BOTTOMRIGHT", 0, 0)
+    well.shadowLeftFade:SetWidth(3)
+    well.shadowLeftFade:SetColorTexture(0.03, 0.03, 0.03, 0.16)
+
+    well.innerBevelBottom = well:CreateTexture(nil, "BORDER")
+    well.innerBevelBottom:SetPoint("BOTTOMLEFT", well, "BOTTOMLEFT", 5, 4)
+    well.innerBevelBottom:SetPoint("BOTTOMRIGHT", well, "BOTTOMRIGHT", -5, 4)
+    well.innerBevelBottom:SetHeight(1)
+    well.innerBevelBottom:SetColorTexture(0.72, 0.67, 0.56, 0.16)
+
+    well.innerBevelRight = well:CreateTexture(nil, "BORDER")
+    well.innerBevelRight:SetPoint("TOPRIGHT", well, "TOPRIGHT", -4, -5)
+    well.innerBevelRight:SetPoint("BOTTOMRIGHT", well, "BOTTOMRIGHT", -4, 5)
+    well.innerBevelRight:SetWidth(1)
+    well.innerBevelRight:SetColorTexture(0.72, 0.67, 0.56, 0.12)
+    return well
 end
 
 ---@param message string
@@ -1354,58 +963,6 @@ function Scanner:IsTargetInSelectedProfessions(target)
     return false
 end
 
----@param target table
----@param profession string?
----@return string
-function Scanner:GetPresetSearchText(target, profession)
-    local parts = { string.lower(tostring(target.label or "")) }
-    local sourceNames = target.sourceNames or {}
-    if profession and profession ~= "ALL" then
-        sourceNames = (target.sourceNamesByProfession and target.sourceNamesByProfession[profession]) or sourceNames
-    elseif profession == "ALL" and target.sourceNamesByProfession then
-        sourceNames = {}
-        for selectedProfession, selected in pairs(self:GetSelectedProfessions()) do
-            if selected then
-                for sourceName in pairs(target.sourceNamesByProfession[selectedProfession] or {}) do
-                    sourceNames[sourceName] = true
-                end
-            end
-        end
-    end
-    for sourceName in pairs(sourceNames) do
-        table.insert(parts, string.lower(tostring(sourceName)))
-    end
-    return table.concat(parts, " ")
-end
-
----@param target table
----@param tag string
----@return boolean
-function Scanner:TargetHasCategoryTag(target, tag)
-    return target.categoryTags and target.categoryTags[tag] == true
-end
-
----@param target table
----@param tags string[]?
----@return boolean
-function Scanner:TargetHasAnyCategoryTag(target, tags)
-    if not tags then
-        return false
-    end
-    for _, tag in ipairs(tags) do
-        if self:TargetHasCategoryTag(target, tag) then
-            return true
-        end
-    end
-    return false
-end
-
----@param target table
----@return boolean
-function Scanner:TargetHasCategoryTags(target)
-    return target.categoryTags and next(target.categoryTags) ~= nil
-end
-
 ---@param text string
 ---@param patterns string[]
 ---@return boolean
@@ -1419,347 +976,24 @@ function Scanner:TextMatchesAny(text, patterns)
 end
 
 ---@param text string
----@return boolean
-function Scanner:IsGemPresetText(text)
-    return string.find(text, "gem", 1, true) ~= nil
-        or string.find(text, "peridot", 1, true) ~= nil
-        or string.find(text, "lapis", 1, true) ~= nil
-        or string.find(text, "amethyst", 1, true) ~= nil
-        or string.find(text, "sapphire", 1, true) ~= nil
-        or string.find(text, "diamond", 1, true) ~= nil
-        or string.find(text, "emerald", 1, true) ~= nil
-        or string.find(text, "ruby", 1, true) ~= nil
-        or string.find(text, "onyx", 1, true) ~= nil
-        or string.find(text, "opal", 1, true) ~= nil
-        or string.find(text, "amber", 1, true) ~= nil
-        or string.find(text, "topaz", 1, true) ~= nil
-end
-
----@param text string
----@return boolean
-function Scanner:IsRaidConsumablePresetText(text)
-    return string.find(text, "potion", 1, true) ~= nil
-        or string.find(text, "flask", 1, true) ~= nil
-        or string.find(text, "phial", 1, true) ~= nil
-        or string.find(text, "cauldron", 1, true) ~= nil
-        or string.find(text, "feast", 1, true) ~= nil
-        or string.find(text, "food", 1, true) ~= nil
-        or string.find(text, "rune", 1, true) ~= nil
-        or string.find(text, "enchant", 1, true) ~= nil
-        or string.find(text, "mana", 1, true) ~= nil
-        or string.find(text, "health", 1, true) ~= nil
-end
-
----@param text string
----@return boolean
-function Scanner:IsArmorPresetText(text)
-    return self:TextMatchesAny(text, {
-        "armor", "armguards", "banding", "basinet", "belt", "bracer", "bracers", "breastplate",
-        "chest", "chestplate", "cloak", "cuffs", "gauntlets", "gloves", "greaves", "guards",
-        "helm", "leggings", "pauldrons", "robe", "sabatons", "shield", "shoulders", "waistguard",
-    })
-end
-
----@param text string
----@return boolean
-function Scanner:IsWeaponPresetText(text)
-    return self:TextMatchesAny(text, {
-        "axe", "blade", "bow", "bulwark", "claw", "dagger", "edge", "glaive", "greatsword", "gun",
-        "knife", "knuckles", "mace", "polearm", "shield", "splitter", "staff", "sword", "wand",
-        "warblade", "weapon",
-    })
-end
-
----@param text string
----@return boolean
-function Scanner:IsProfessionToolPresetText(text)
-    return self:TextMatchesAny(text, {
-        "apron", "bag", "backpack", "clampers", "cover", "cutters", "fishing rod", "hardhat",
-        "hat", "knife", "multitool", "needle set", "pickaxe", "profession tool", "rod", "sickle",
-        "snippers", "toolbox", "toolset",
-    })
-end
-
----@param text string
----@return boolean
-function Scanner:IsEnchantPresetText(text)
-    return self:TextMatchesAny(text, {
-        "enchant ", "enchantment", "armor banding", "weapon wrap",
-    })
-end
-
----@param text string
----@return boolean
-function Scanner:IsContainerPresetText(text)
-    return self:TextMatchesAny(text, {
-        "bag", "backpack", "satchel", "toolbox", "toolset",
-    })
-end
-
----@param target table
----@param presetID string
----@param profession string?
----@return boolean selected
-function Scanner:TargetMatchesPreset(target, presetID, profession)
-    local searchText = self:GetPresetSearchText(target, profession)
-    local hasCategoryTags = self:TargetHasCategoryTags(target)
-    if presetID == self.PRESET_IDS.ALL then
-        return true
-    elseif presetID == self.PRESET_IDS.NONE then
-        return false
-    elseif presetID == self.PRESET_IDS.INPUTS then
-        return target.kindMap and target.kindMap.input == true
-    elseif presetID == self.PRESET_IDS.OUTPUTS then
-        return target.kindMap and target.kindMap.output == true
-    elseif presetID == self.PRESET_IDS.COMMODITIES then
-        return target.isCommodity == true or target.resultType == "commodity"
-    end
-
-    if self:TargetHasAnyCategoryTag(target, self.PRESET_CATEGORY_TAGS[presetID]) then
-        return true
-    end
-
-    local patterns = self.PRESET_TEXT_PATTERNS[presetID]
-    if not hasCategoryTags and patterns and self:TextMatchesAny(searchText, patterns) then
-        return true
-    end
-
-    if self.PRESET_CATEGORY_TAGS[presetID] or self.PRESET_TEXT_PATTERNS[presetID] then
-        return false
-    end
-
-    return Config:IsTargetSelected(target.key)
-end
-
----@param presetID string
----@return boolean
-function Scanner:PresetShouldIncludeRecipeInputs(presetID)
-    return presetID ~= self.PRESET_IDS.ALL
-        and presetID ~= self.PRESET_IDS.NONE
-        and presetID ~= self.PRESET_IDS.INPUTS
-        and presetID ~= self.PRESET_IDS.OUTPUTS
-        and presetID ~= self.PRESET_IDS.COMMODITIES
-end
-
----@param target table
----@param recipeIDs table<number, boolean>
----@return boolean
-function Scanner:TargetHasAnyRecipe(target, recipeIDs)
-    for recipeID in pairs(target.sourceRecipeMap or {}) do
-        if recipeIDs[recipeID] then
-            return true
-        end
-    end
-    return false
-end
-
----@param contextProfession string?
----@return table[] targets
-function Scanner:GetPresetScopeTargets(contextProfession)
-    local cacheKey = contextProfession or "__CURRENT__"
-    if self.presetMenuTargetCache and self.presetMenuTargetCache[cacheKey] then
-        return self.presetMenuTargetCache[cacheKey]
-    end
-
-    local targets = self.configTargets
-    if not targets then
-        targets = self:GetConfigTargets()
-    end
-    if contextProfession then
-        targets = ns.Filter(targets, function(target)
-            return self:IsTargetInConfigProfession(target, contextProfession)
-        end)
-    end
-
-    if self.presetMenuTargetCache then
-        self.presetMenuTargetCache[cacheKey] = targets
-    end
-    return targets
-end
-
----@param presetID string
----@param contextProfession string?
----@param targets table[]?
----@return table[] matchedTargets
-function Scanner:GetPresetMatchedTargets(presetID, contextProfession, targets)
-    targets = targets or self:GetPresetScopeTargets(contextProfession)
-
-    if presetID == self.PRESET_IDS.ALL or presetID == self.PRESET_IDS.NONE then
-        return targets
-    end
-
-    local profession = contextProfession or self:GetConfigProfession()
-    local presetRecipeIDs = {}
-    if self:PresetShouldIncludeRecipeInputs(presetID) then
-        for _, target in ipairs(targets) do
-            if target.kindMap and target.kindMap.output and self:TargetMatchesPreset(target, presetID, profession) then
-                for recipeID in pairs((target.sourceRecipeKindMap and target.sourceRecipeKindMap.output) or {}) do
-                    presetRecipeIDs[recipeID] = true
-                end
-            end
-        end
-    end
-
-    local matchedTargets = {}
-    for _, target in ipairs(targets) do
-        local matched
-        if self:PresetShouldIncludeRecipeInputs(presetID) then
-            matched = self:TargetMatchesPreset(target, presetID, profession) or
-                self:TargetHasAnyRecipe(target, presetRecipeIDs)
-        else
-            matched = self:TargetMatchesPreset(target, presetID, profession)
-        end
-        if matched then
-            table.insert(matchedTargets, target)
-        end
-    end
-
-    return matchedTargets
-end
-
----@param targets table[]
----@return number selectedCount
-function Scanner:GetSelectedTargetCount(targets)
-    local selectedCount = 0
-    for _, target in ipairs(targets or {}) do
-        if Config:IsTargetSelected(target.key) then
-            selectedCount = selectedCount + 1
-        end
-    end
-    return selectedCount
-end
-
----@param presetID string
----@param selectedCount number
----@param totalCount number
----@return "all" | "partial" | "none" | "empty" state
-function Scanner:GetPresetSelectionStateFromCounts(presetID, selectedCount, totalCount)
-    if totalCount <= 0 then
-        return "empty"
-    end
-
-    if presetID == self.PRESET_IDS.NONE then
-        return selectedCount == 0 and "all" or "none"
-    end
-
-    if selectedCount == totalCount then
-        return "all"
-    elseif selectedCount > 0 then
-        return "partial"
-    end
-    return "none"
-end
-
----@param presetID string
----@param contextProfession string?
----@return string state
----@return number selectedCount
----@return number totalCount
-function Scanner:GetPresetSelectionState(presetID, contextProfession)
-    local targets = self:GetPresetMatchedTargets(presetID, contextProfession)
-    local selectedCount = self:GetSelectedTargetCount(targets)
-    return self:GetPresetSelectionStateFromCounts(presetID, selectedCount, #targets), selectedCount, #targets
-end
-
----@param state string
----@return string prefix
-function Scanner:GetPresetStatePrefix(state)
-    if state == "all" then
-        return "[x]"
-    elseif state == "partial" then
-        return "[-]"
-    end
-    return "[ ]"
-end
-
----@param label string
----@param state string
----@param selectedCount number
----@param totalCount number
----@return string
-function Scanner:GetPresetStateLabel(label, state, selectedCount, totalCount)
-    local stateLabel = self:GetPresetStatePrefix(state) .. " " .. label
-    if state == "partial" and totalCount > 0 then
-        stateLabel = stateLabel .. string.format(" (%d/%d)", selectedCount, totalCount)
-    end
-    return stateLabel
-end
-
----@param presets table[]?
----@param contextProfession string?
----@return string state
----@return number selectedCount
----@return number totalCount
-function Scanner:GetPresetGroupSelectionState(presets, contextProfession)
-    local targetsByKey = {}
-    local targets = {}
-
-    for _, preset in ipairs(presets or {}) do
-        for _, target in ipairs(self:GetPresetMatchedTargets(preset.id, contextProfession)) do
-            if target.key and not targetsByKey[target.key] then
-                targetsByKey[target.key] = true
-                table.insert(targets, target)
-            end
-        end
-    end
-
-    local selectedCount = self:GetSelectedTargetCount(targets)
-    return self:GetPresetSelectionStateFromCounts(self.PRESET_IDS.ALL, selectedCount, #targets), selectedCount, #targets
-end
-
----@param label string
----@param presets table[]?
----@param contextProfession string?
----@return string
-function Scanner:GetPresetGroupMenuLabel(label, presets, contextProfession)
-    local state, selectedCount, totalCount = self:GetPresetGroupSelectionState(presets, contextProfession)
-    return self:GetPresetStateLabel(label, state, selectedCount, totalCount)
-end
-
----@param presetID string
----@return boolean
-function Scanner:IsTogglePreset(presetID)
-    return presetID ~= self.PRESET_IDS.ALL and presetID ~= self.PRESET_IDS.NONE
-end
-
----@param profession string?
----@return table<string, boolean>
-function Scanner:GetActivePresetMap(profession)
-    profession = profession or self:GetConfigProfession()
-    self.activeConfigPresets[profession] = self.activeConfigPresets[profession] or {}
-    return self.activeConfigPresets[profession]
-end
-
----@param profession string?
-function Scanner:ClearActivePresetMap(profession)
-    if profession then
-        self.activeConfigPresets[profession] = {}
-    else
-        wipe(self.activeConfigPresets)
-    end
-end
-
----@param presetID string
----@param profession string?
----@return boolean
-function Scanner:IsPresetActive(presetID, profession)
-    return self:GetActivePresetMap(profession)[presetID] == true
-end
-
----@param label string
----@param presetID string
----@param contextProfession string?
----@return string
-function Scanner:GetPresetMenuLabel(label, presetID, contextProfession)
-    local state, selectedCount, totalCount = self:GetPresetSelectionState(presetID, contextProfession)
-    return self:GetPresetStateLabel(label, state, selectedCount, totalCount)
-end
-
----@param text string
 function Scanner:SetStatus(text)
     if self.panel and self.panel.statusText then
         self.panel.statusText:SetText(text or "")
     end
+end
+
+function Scanner:InvalidateScanConfiguration()
+    self.scanComplete = false
+    self.overridesPushed = false
+    self:SetStatus("")
+end
+
+---@param count number
+---@param singular string
+---@param plural string?
+---@return string
+function Scanner:Pluralize(count, singular, plural)
+    return tonumber(count) == 1 and singular or (plural or (singular .. "s"))
 end
 
 ---@param target table?
@@ -1812,20 +1046,41 @@ function Scanner:GetTargetDiagnosticSummary(target)
     return table.concat(parts, ";")
 end
 
+---@return number pricedTargets
+---@return number unpricedTargets
+---@return number processedTargets
+---@return number groupedUnpricedItems
+function Scanner:GetScanOutcomeCounts()
+    local processedTargets = math.max(0, tonumber(self.completedTargets) or 0)
+    local unpricedTargets = #(self.missingResults or {})
+    local pricedTargets = math.max(0, processedTargets - unpricedTargets)
+    local groupedUnpricedItems = self:GetMissingDisplayCount()
+    return pricedTargets, unpricedTargets, processedTargets, groupedUnpricedItems
+end
+
 function Scanner:UpdateProgressText()
     if not self.panel or not self.panel.progressText then
         return
     end
 
     if self.isScanning then
-        self.panel.progressText:SetText(string.format("%d/%d AH queries", self.completedTargets, self.totalTargets))
+        if self.panel.progressBar then
+            self.panel.progressBar:SetMinMaxValues(0, math.max(1, tonumber(self.totalTargets) or 0))
+            self.panel.progressBar:SetValue(math.max(0, tonumber(self.completedTargets) or 0))
+            self.panel.progressBar:Show()
+        end
+        self.panel.progressText:SetText(string.format("%d/%d price targets", self.completedTargets, self.totalTargets))
         return
     end
 
-    local priced = #self.priceResults
-    local missing = self:GetMissingDisplayCount()
+    if self.panel.progressBar then
+        self.panel.progressBar:Hide()
+    end
+
     if self.scanComplete then
-        self.panel.progressText:SetText(string.format("%d priced, %d unpriced", priced, missing))
+        local pricedTargets, unpricedTargets, processedTargets = self:GetScanOutcomeCounts()
+        self.panel.progressText:SetText(string.format("%d/%d targets processed\n%d priced · %d unpriced",
+            processedTargets, self.totalTargets, pricedTargets, unpricedTargets))
     else
         self.panel.progressText:SetText("")
     end
@@ -1837,12 +1092,15 @@ function Scanner:UpdateMissingButton()
         return
     end
 
-    local missing = self:GetMissingDisplayCount()
-    local showMissing = self.scanComplete and not self.isScanning and missing > 0
+    local groupedItems = self:GetMissingDisplayCount()
+    local showMissing = self.scanComplete and not self.isScanning and groupedItems > 0
 
-    panel.missingButton:SetText("Unpriced (" .. tostring(missing) .. ")")
+    panel.missingButton:SetText("Unpriced items (" .. tostring(groupedItems) .. ")")
     panel.missingButton:Show()
     SetButtonEnabled(panel.missingButton, showMissing)
+    if panel.missingButtonHover then
+        panel.missingButtonHover:SetShown(not showMissing)
+    end
 end
 
 ---@return boolean
@@ -1905,7 +1163,10 @@ function Scanner:UpdateButtons()
     end
     if self.configPanel then
         self:UpdateScanScopeButtons()
-        SetButtonEnabled(self.configPanel.presetButton, not self.isScanning)
+        for _, viewButton in pairs(self.configPanel.viewButtons or {}) do
+            SetButtonEnabled(viewButton, not self.isScanning)
+            viewButton:SetAlpha(self.isScanning and 0.5 or 1)
+        end
         SetButtonEnabled(self.configPanel.selectAllButton, not self.isScanning)
         SetButtonEnabled(self.configPanel.clearAllButton, not self.isScanning)
         SetButtonEnabled(self.configPanel.treeExpansionButton, not self.isScanning)
@@ -1940,7 +1201,12 @@ Scanner.Shared = {
     AuctionHouseTabMinWidth = AUCTION_HOUSE_TAB_MIN_WIDTH,
     SmallAuctionHouseTabPadding = SMALL_AUCTION_HOUSE_TAB_PADDING,
     SmallAuctionHouseTabMinWidth = SMALL_AUCTION_HOUSE_TAB_MIN_WIDTH,
+    NativeRockTexture = NATIVE_ROCK_TEXTURE,
+    NativeInsetBackdrop = NATIVE_INSET_BACKDROP,
     SetButtonEnabled = SetButtonEnabled,
+    CreateNativeActionButton = CreateNativeActionButton,
+    CreateNativeHeaderBand = CreateNativeHeaderBand,
+    CreateNativeListWell = CreateNativeListWell,
     SystemPrint = SystemPrint,
 }
 
