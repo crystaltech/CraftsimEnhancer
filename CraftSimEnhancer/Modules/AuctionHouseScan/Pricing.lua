@@ -358,6 +358,30 @@ function Scanner:GetCheapestRealBetterRankPrice(pricesByRecipeAndQuality, recipe
     return cheapest
 end
 
+---@param reagentCount number
+---@param productCount number
+---@param estimatedCount number
+---@param cappedCount number
+---@param skippedCount number
+---@return string
+function Scanner:GetOverridePushStatusText(reagentCount, productCount, estimatedCount, cappedCount, skippedCount)
+    local lines = {
+        "|cffffd200Overrides applied|r",
+        string.format("• Products: %d", tonumber(productCount) or 0),
+        string.format("• Reagents: %d", tonumber(reagentCount) or 0),
+    }
+    if (tonumber(estimatedCount) or 0) > 0 then
+        table.insert(lines, string.format("• Estimated: %d", estimatedCount))
+    end
+    if (tonumber(cappedCount) or 0) > 0 then
+        table.insert(lines, string.format("• Capped: %d", cappedCount))
+    end
+    if (tonumber(skippedCount) or 0) > 0 then
+        table.insert(lines, string.format("• Skipped (no cost): %d", skippedCount))
+    end
+    return table.concat(lines, "\n")
+end
+
 function Scanner:PushOverrides()
     if not self.scanComplete or not self:HasOverridesToPush() then
         self:SetStatus("Run a scan before pushing overrides.")
@@ -480,8 +504,7 @@ function Scanner:PushOverrides()
     ns.Compat.CraftSim:UpdateCraftSimUI()
 
     self.overridesPushed = true
-    self:SetStatus(string.format(
-        "Pushed %d reagent and %d result overrides (%d estimated); capped %d lower-rank prices; skipped %d estimates without cost.",
+    self:SetStatus(self:GetOverridePushStatusText(
         globalCount, resultCount, estimatedResultCount, cappedResultCount, skippedEstimateCount))
     self:UpdateButtons()
     if self.missingPanel and self.missingPanel:IsShown() then

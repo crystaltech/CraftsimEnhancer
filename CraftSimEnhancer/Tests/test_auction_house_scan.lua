@@ -656,6 +656,24 @@ local function testUnpricedStatusClassification()
     }), "Variant not recognized", "variant status")
 end
 
+local function testOverridePushStatusUsesCompactResultList()
+    assertEqual(Scanner:GetOverridePushStatusText(38, 279, 0, 60, 223), table.concat({
+        "|cffffd200Overrides applied|r",
+        "• Products: 279",
+        "• Reagents: 38",
+        "• Capped: 60",
+        "• Skipped (no cost): 223",
+    }, "\n"), "compact override status")
+
+    local statusWithEstimate = Scanner:GetOverridePushStatusText(2, 4, 1, 0, 0)
+    assertEqual(statusWithEstimate, table.concat({
+        "|cffffd200Overrides applied|r",
+        "• Products: 4",
+        "• Reagents: 2",
+        "• Estimated: 1",
+    }, "\n"), "optional override status rows")
+end
+
 local function testCompletedScanCountsUseConsistentTargetUnits()
     local originals = {
         completedTargets = Scanner.completedTargets,
@@ -1046,6 +1064,7 @@ testScanScopeUsesStrictItemRoles()
 testActiveScanScopeLooksSelectedInsteadOfDisabled()
 testTargetBuildAppliesConfiguredScanScope()
 testUnpricedStatusClassification()
+testOverridePushStatusUsesCompactResultList()
 testCompletedScanCountsUseConsistentTargetUnits()
 testActiveScanUpdatesSlimProgressBar()
 testPartialRecipePreviewIsBoundedAndExplicit()
