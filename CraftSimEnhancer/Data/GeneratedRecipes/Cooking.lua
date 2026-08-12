@@ -2469,6 +2469,17 @@ ns.Data.GeneratedRecipes[#ns.Data.GeneratedRecipes+1] = {
       isCommodity = true,
       qtyPerCraft = 50.000000,
     },
+    {
+      itemRef = "Neutralized Venom Clot",
+      itemIDs = { 274777 },
+      qtyPerCraft = 3.000000,
+    },
+    {
+      itemRef = "Petrified Root",
+      itemIDs = { 251285 },
+      isCommodity = true,
+      qtyPerCraft = 1.000000,
+    },
   },
 }
 
@@ -2514,6 +2525,17 @@ ns.Data.GeneratedRecipes[#ns.Data.GeneratedRecipes+1] = {
       isCommodity = true,
       qtyPerCraft = 50.000000,
     },
+    {
+      itemRef = "Neutralized Venom Clot",
+      itemIDs = { 274777 },
+      qtyPerCraft = 3.000000,
+    },
+    {
+      itemRef = "Petrified Root",
+      itemIDs = { 251285 },
+      isCommodity = true,
+      qtyPerCraft = 1.000000,
+    },
   },
 }
 
@@ -2557,6 +2579,17 @@ ns.Data.GeneratedRecipes[#ns.Data.GeneratedRecipes+1] = {
       itemIDs = { 253403 },
       isCommodity = true,
       qtyPerCraft = 50.000000,
+    },
+    {
+      itemRef = "Cursebound Globe",
+      itemIDs = { 274781 },
+      qtyPerCraft = 3.000000,
+    },
+    {
+      itemRef = "Petrified Root",
+      itemIDs = { 251285 },
+      isCommodity = true,
+      qtyPerCraft = 1.000000,
     },
   },
 }

@@ -3,7 +3,8 @@ local _, ns = ...
 local WoW = {}
 ns.Compat.WoW = WoW
 
--- Verified against the 12.0.7 live reference tree in References/wow-ui-source-live.
+-- The 12.1.0.69273 source surface is verified; keep this at the last completed
+-- in-game compatibility checklist until the 12.1 smoke test passes.
 WoW.testedInterface = 120007
 
 function WoW:GetInterfaceVersion()

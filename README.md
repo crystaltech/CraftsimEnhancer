@@ -9,12 +9,13 @@ CraftSim Enhancer is a standalone World of Warcraft Retail companion addon for [
 
 ## Current compatibility
 
-- World of Warcraft Retail interface: **120007 (12.0.7)**
+- Last completed in-game checklist: **120007 (12.0.7)**
+- Current release target: **120100 (12.1.0, build 69273)**
 - CraftSim: **26.1.10**
 
 Other versions may work when their required capabilities remain compatible. Run `/cse status` after updating World of Warcraft or CraftSim; the addon reports untested versions and disables only a feature whose required interface is unavailable.
 
-World of Warcraft 12.1 will not be marked as supported until the live client and generated item data have been validated.
+The 12.1 live Auction House, merchant, item, tooltip, and profession APIs used by CraftSim Enhancer have been validated against the shipped UI source. Generated profession data and current TSM public item coverage have also been refreshed. `/cse status` retains an untested-version warning until the in-game checklist passes.
 
 ## What it adds
 

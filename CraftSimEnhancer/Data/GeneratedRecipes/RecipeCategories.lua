@@ -2,7 +2,7 @@
 -- Blizzard profession category hierarchy for generated scan recipes.
 local _, ns = ...
 ns.Data.RecipeCategories = {
-  build = "12.1.0.68824",
+  build = "12.1.0.69273",
   categories = {
     [2168] = {
       name = "Recraft and Recycle",
@@ -1410,7 +1410,6 @@ ns.Data.RecipeCategories = {
     [1296504] = 2456,
     [1296505] = 2421,
     [1296506] = 2421,
-    [1296507] = 2421,
     [1296508] = 2421,
     [1296509] = 2628,
     [1296510] = 2628,

@@ -2,7 +2,7 @@ local addonName, ns = ...
 
 ns.name = addonName
 ns.displayName = "CraftSim Enhancer"
-ns.version = "1.4.2"
+ns.version = "1.5.0"
 ns.Config = ns.Config or {}
 ns.Compat = ns.Compat or {}
 ns.Modules = ns.Modules or {}

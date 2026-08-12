@@ -4754,6 +4754,11 @@ ns.Data.GeneratedRecipes[#ns.Data.GeneratedRecipes+1] = {
       qtyPerCraft = 2.000000,
     },
     {
+      itemRef = "Cursebound Globe",
+      itemIDs = { 274781 },
+      qtyPerCraft = 2.000000,
+    },
+    {
       itemRef = "Soul Cipher",
       itemIDs = { 245766, 245767 },
       isCommodity = true,
@@ -4919,52 +4924,6 @@ ns.Data.GeneratedRecipes[#ns.Data.GeneratedRecipes+1] = {
 }
 
 ns.Data.GeneratedRecipes[#ns.Data.GeneratedRecipes+1] = {
-  id = "inscription__turquoise_amani_tapestry__midnight_1",
-  patchTag = "midnight-1",
-  profession = "Inscription",
-  stratName = "Turquoise Amani Tapestry",
-  recipeID = 1296507,
-  defaultStartingAmount = 100,
-  defaultCrafts = 10,
-  formulaProfile = "insc_ink",
-  calcMode = "formula",
-  qualityPolicy = "normal",
-  outputQualityMode = "rank_policy",
-  outputs = {
-    {
-      itemRef = "Turquoise Amani Tapestry",
-      itemIDs = { 275327 },
-      auctionSellable = false,
-      baseYieldPerCraft = 1.000000,
-      baseYield = 0.100000,
-    },
-  },
-  reagents = {
-    {
-      itemRef = "Thalassian Lumber",
-      itemIDs = { 256963 },
-      qtyPerCraft = 6.000000,
-    },
-    {
-      itemRef = "Codified Azeroot",
-      itemIDs = { 245764, 245765 },
-      isCommodity = true,
-      rankItemIDs = { [1] = 245764, [2] = 245765 },
-      rankCount = 2,
-      qtyPerCraft = 1.000000,
-    },
-    {
-      itemRef = "Soul Cipher",
-      itemIDs = { 245766, 245767 },
-      isCommodity = true,
-      rankItemIDs = { [1] = 245766, [2] = 245767 },
-      rankCount = 2,
-      qtyPerCraft = 2.000000,
-    },
-  },
-}
-
-ns.Data.GeneratedRecipes[#ns.Data.GeneratedRecipes+1] = {
   id = "inscription__empty_tortollan_rack__midnight_1",
   patchTag = "midnight-1",
   profession = "Inscription",
@@ -5048,9 +5007,8 @@ ns.Data.GeneratedRecipes[#ns.Data.GeneratedRecipes+1] = {
       qtyPerCraft = 1.000000,
     },
     {
-      itemRef = "Mote of Light",
-      itemIDs = { 236949 },
-      isCommodity = true,
+      itemRef = "Neutralized Venom Clot",
+      itemIDs = { 274777 },
       qtyPerCraft = 3.000000,
     },
     {

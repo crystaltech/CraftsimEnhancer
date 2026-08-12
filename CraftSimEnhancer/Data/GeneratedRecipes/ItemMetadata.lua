@@ -13454,15 +13454,6 @@ ns.Data.ItemMetadata[275321] = {
   auctionSellable = false,
   categoryTags = { "consumable", "explosive_device" },
 }
-ns.Data.ItemMetadata[275327] = {
-  itemClassID = 0,
-  itemClass = "Consumable",
-  itemSubClassID = 0,
-  itemSubClass = "Explosives and Devices",
-  inventoryType = 0,
-  auctionSellable = false,
-  categoryTags = { "consumable", "explosive_device" },
-}
 ns.Data.ItemMetadata[275329] = {
   itemClassID = 0,
   itemClass = "Consumable",

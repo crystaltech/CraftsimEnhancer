@@ -5411,9 +5411,8 @@ ns.Data.GeneratedRecipes[#ns.Data.GeneratedRecipes+1] = {
   },
   reagents = {
     {
-      itemRef = "Mote of Wild Magic",
-      itemIDs = { 236951 },
-      isCommodity = true,
+      itemRef = "Cursebound Globe",
+      itemIDs = { 274781 },
       qtyPerCraft = 5.000000,
     },
     {

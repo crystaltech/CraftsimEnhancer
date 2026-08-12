@@ -6425,6 +6425,16 @@ ns.Data.GeneratedRecipes[#ns.Data.GeneratedRecipes+1] = {
       qtyPerCraft = 4.000000,
     },
     {
+      itemRef = "Neutralized Venom Clot",
+      itemIDs = { 274777 },
+      qtyPerCraft = 2.000000,
+    },
+    {
+      itemRef = "Cursebound Globe",
+      itemIDs = { 274781 },
+      qtyPerCraft = 2.000000,
+    },
+    {
       itemRef = "Umbral Tin Ore",
       itemIDs = { 237362, 237363 },
       isCommodity = true,

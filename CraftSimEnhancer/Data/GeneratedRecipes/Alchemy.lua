@@ -2450,6 +2450,11 @@ ns.Data.GeneratedRecipes[#ns.Data.GeneratedRecipes+1] = {
   },
   reagents = {
     {
+      itemRef = "Cursebound Globe",
+      itemIDs = { 274781 },
+      qtyPerCraft = 2.000000,
+    },
+    {
       itemRef = "Silvermoon Health Potion",
       itemIDs = { 241304, 241305 },
       isCommodity = true,

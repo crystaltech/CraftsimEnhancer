@@ -1,9 +1,9 @@
-## Interface: 120007
+## Interface: 120100
 ## Title: CraftSim Enhancer
 ## Category: Professions
 ## Notes: Adds custom enhancements and additional features to CraftSim.
 ## Author: Crystal_Tech
-## Version: 1.4.2
+## Version: 1.5.0
 ## RequiredDeps: CraftSim
 ## SavedVariables: CraftSimEnhancerDB
 

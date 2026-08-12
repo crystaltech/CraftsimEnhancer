@@ -6814,10 +6814,9 @@ ns.Data.GeneratedRecipes[#ns.Data.GeneratedRecipes+1] = {
       qtyPerCraft = 10.000000,
     },
     {
-      itemRef = "Mote of Pure Void",
-      itemIDs = { 236952 },
-      isCommodity = true,
-      qtyPerCraft = 1.000000,
+      itemRef = "Neutralized Venom Clot",
+      itemIDs = { 274777 },
+      qtyPerCraft = 3.000000,
     },
     {
       itemRef = "Evercore",
@@ -7054,6 +7053,11 @@ ns.Data.GeneratedRecipes[#ns.Data.GeneratedRecipes+1] = {
   },
   reagents = {
     {
+      itemRef = "Neutralized Venom Clot",
+      itemIDs = { 274777 },
+      qtyPerCraft = 125.000000,
+    },
+    {
       itemRef = "Song Gear",
       itemIDs = { 243574, 243575 },
       isCommodity = true,
@@ -7116,10 +7120,9 @@ ns.Data.GeneratedRecipes[#ns.Data.GeneratedRecipes+1] = {
       qtyPerCraft = 10.000000,
     },
     {
-      itemRef = "Mote of Pure Void",
-      itemIDs = { 236952 },
-      isCommodity = true,
-      qtyPerCraft = 15.000000,
+      itemRef = "Neutralized Venom Clot",
+      itemIDs = { 274777 },
+      qtyPerCraft = 10.000000,
     },
     {
       itemRef = "Evercore",
