@@ -77,7 +77,9 @@ local function WarnForUntestedVersions()
 
     local craftSimVersion = tostring(ns.Compat.CraftSim:GetVersion())
     local testedCraftSimVersion = tostring(ns.Compat.CraftSim.testedVersion)
-    if craftSimVersion ~= "unknown" and craftSimVersion ~= testedCraftSimVersion then
+    local versionTested = type(ns.Compat.CraftSim.IsVersionTested) == "function" and
+        ns.Compat.CraftSim:IsVersionTested(craftSimVersion) or craftSimVersion == testedCraftSimVersion
+    if craftSimVersion ~= "unknown" and not versionTested then
         ns:WarnOnce("craftsim-version",
             "Running CraftSim " .. craftSimVersion .. "; tested against " .. testedCraftSimVersion ..
             ". Capability checks passed, but internal behavior may have changed.")

@@ -41,12 +41,7 @@ function Notice:CanInitialize()
     if not queueItems and queueError ~= "CraftSim craft queue is not initialized" then
         return nil, queueError
     end
-    local craftSim = Compat.craftSim
-    local queueModule = craftSim and craftSim.CRAFTQ
-    if not queueModule or type(queueModule.CreateAuctionatorShoppingList) ~= "function" then
-        return nil, "CraftSim shopping-list creation function is unavailable"
-    end
-    return true
+    return Compat:ValidateShoppingListHook()
 end
 
 function Notice:Initialize()

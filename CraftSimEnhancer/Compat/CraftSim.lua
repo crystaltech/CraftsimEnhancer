@@ -3,16 +3,20 @@ local _, ns = ...
 local Compat = {}
 ns.Compat.CraftSim = Compat
 
-Compat.testedVersion = "26.1.10"
+Compat.testedVersion = "27.0.0"
+Compat.testedVersions = {
+    ["26.1.10"] = true,
+    ["27.0.0"] = true,
+}
 Compat.internalDependencies = {
     "CraftSim.CRAFTQ.craftQueue.craftQueueItems",
-    "CraftSim.CRAFTQ:GetNonSoulboundAlternativeItemID",
+    "CraftSim.CRAFTQ:GetNonSoulboundAlternativeItemID or CraftSim 27 reagent mapping",
     "CraftSim.CRAFTQ:GetItemCountFromCraftQueueCache",
-    "CraftSim.CRAFTQ:CreateAuctionatorShoppingList",
+    "CraftSim.CRAFTQ:CreateAuctionatorShoppingList or CraftSim.SHOPPING:CreateShoppingListFromCraftQueue",
     "CraftSim.DB.PRICE_OVERRIDE",
     "CraftSim.DB.LAST_CRAFTING_COST (missing-output estimates and break-even tooltips)",
     "CraftSim.CONST profession metadata and shopping-list name",
-    "CraftSim.MODULES:UpdateUI",
+    "CraftSim.MODULES:UpdateUI or CraftSim.GUTIL:TriggerCustomEvent",
     "CraftSimTSM:GetMinBuyoutByItemID",
 }
 
@@ -37,6 +41,10 @@ function Compat:GetVersion()
     return self.version or ns.Compat.WoW:GetAddonVersion("CraftSim") or "unknown"
 end
 
+function Compat:IsVersionTested(version)
+    return self.testedVersions[tostring(version or self:GetVersion())] == true
+end
+
 function Compat:GetCraftQueueItems()
     local queueModule = self.craftSim and self.craftSim.CRAFTQ
     local queue = queueModule and queueModule.craftQueue
@@ -49,10 +57,43 @@ end
 
 function Compat:GetNonSoulboundAlternativeItemID(itemID)
     local queueModule = self.craftSim and self.craftSim.CRAFTQ
-    if not queueModule or type(queueModule.GetNonSoulboundAlternativeItemID) ~= "function" then
-        return nil, "CraftSim non-soulbound reagent helper is unavailable"
+    if queueModule and type(queueModule.GetNonSoulboundAlternativeItemID) == "function" then
+        return queueModule:GetNonSoulboundAlternativeItemID(itemID)
     end
-    return queueModule:GetNonSoulboundAlternativeItemID(itemID)
+
+    -- CraftSim 27 moved shopping-list behavior into CraftSim.SHOPPING and made
+    -- this helper local to that module. Mirror the upstream mapping behavior.
+    local craftSim = self.craftSim
+    local gutil = craftSim and craftSim.GUTIL
+    local function IsSoulbound(candidateItemID)
+        if gutil and type(gutil.isItemSoulbound) == "function" then
+            local success, result = pcall(gutil.isItemSoulbound, gutil, candidateItemID)
+            if success then
+                return result == true
+            end
+        end
+        local wow = ns.Compat.WoW
+        if wow and type(wow.IsItemSoulbound) == "function" then
+            return wow:IsItemSoulbound(candidateItemID) == true
+        end
+        return nil
+    end
+
+    local isSoulbound = IsSoulbound(itemID)
+    if isSoulbound == nil then
+        return nil, "CraftSim non-soulbound reagent mapping is unavailable"
+    end
+    if not isSoulbound then
+        return itemID
+    end
+
+    local constants = craftSim and craftSim.CONST
+    local mapping = constants and constants.REAGENT_ID_EXCEPTION_MAPPING
+    local alternativeItemID = mapping and mapping[itemID]
+    if alternativeItemID and IsSoulbound(alternativeItemID) == false then
+        return alternativeItemID
+    end
+    return nil
 end
 
 function Compat:GetCraftQueueItemCount(crafterUID, itemID)
@@ -81,10 +122,18 @@ function Compat:GetAuctionatorShoppingListName()
 end
 
 function Compat:ResetQuickBuyCache()
-    local queueModule = self.craftSim and self.craftSim.CRAFTQ
+    local craftSim = self.craftSim
+    local shoppingModule = craftSim and craftSim.SHOPPING
+    if shoppingModule and type(shoppingModule.ResetQuickBuyCache) == "function" then
+        shoppingModule:ResetQuickBuyCache()
+        return true
+    end
+    local queueModule = craftSim and craftSim.CRAFTQ
     if queueModule and type(queueModule.ResetQuickBuyCache) == "function" then
         queueModule:ResetQuickBuyCache()
+        return true
     end
+    return false
 end
 
 function Compat:SaveGlobalOverride(data)
@@ -215,10 +264,18 @@ function Compat:ClearEstimatedResultOverride(recipeID, qualityID, source)
 end
 
 function Compat:UpdateCraftSimUI()
-    local modules = self.craftSim and self.craftSim.MODULES
+    local craftSim = self.craftSim
+    local modules = craftSim and craftSim.MODULES
     if modules and type(modules.UpdateUI) == "function" then
         modules:UpdateUI()
+        return true
     end
+    local gutil = craftSim and craftSim.GUTIL
+    if gutil and type(gutil.TriggerCustomEvent) == "function" then
+        gutil:TriggerCustomEvent("CRAFTSIM_RECIPE_DATA_MODIFIED")
+        return true
+    end
+    return false
 end
 
 function Compat:GetProfessionLabel(professionEnum, fallback)
@@ -247,12 +304,33 @@ function Compat:GetTSMFallbackPrice(itemID, isReagent)
     end
 end
 
-function Compat:HookShoppingListCreated(callback)
-    local queueModule = self.craftSim and self.craftSim.CRAFTQ
-    if not queueModule or type(queueModule.CreateAuctionatorShoppingList) ~= "function" then
-        return nil, "CraftSim shopping-list creation function is unavailable"
+function Compat:GetShoppingListCreator()
+    local craftSim = self.craftSim
+    local shoppingModule = craftSim and craftSim.SHOPPING
+    if shoppingModule and type(shoppingModule.CreateShoppingListFromCraftQueue) == "function" then
+        return shoppingModule, "CreateShoppingListFromCraftQueue"
     end
-    hooksecurefunc(queueModule, "CreateAuctionatorShoppingList", callback)
+    local queueModule = craftSim and craftSim.CRAFTQ
+    if queueModule and type(queueModule.CreateAuctionatorShoppingList) == "function" then
+        return queueModule, "CreateAuctionatorShoppingList"
+    end
+    return nil, nil, "CraftSim shopping-list creation function is unavailable"
+end
+
+function Compat:HookShoppingListCreated(callback)
+    local module, methodName, resolveError = self:GetShoppingListCreator()
+    if not module then
+        return nil, resolveError
+    end
+    hooksecurefunc(module, methodName, callback)
+    return true
+end
+
+function Compat:ValidateShoppingListHook()
+    local module, _, resolveError = self:GetShoppingListCreator()
+    if not module then
+        return nil, resolveError
+    end
     return true
 end
 
@@ -276,9 +354,18 @@ end
 
 function Compat:ValidateVendorBuy()
     local queueModule = self.craftSim and self.craftSim.CRAFTQ
-    if not queueModule or type(queueModule.GetNonSoulboundAlternativeItemID) ~= "function" or
-        type(queueModule.GetItemCountFromCraftQueueCache) ~= "function" then
+    if not queueModule or type(queueModule.GetItemCountFromCraftQueueCache) ~= "function" then
         return nil, "required CraftSim craft-queue helpers are unavailable"
+    end
+    local hasLegacyMapping = type(queueModule.GetNonSoulboundAlternativeItemID) == "function"
+    local craftSim = self.craftSim
+    local gutil = craftSim and craftSim.GUTIL
+    local hasSoulboundCheck = gutil and type(gutil.isItemSoulbound) == "function"
+    if not hasSoulboundCheck and ns.Compat.WoW then
+        hasSoulboundCheck = type(ns.Compat.WoW.IsItemSoulbound) == "function"
+    end
+    if not hasLegacyMapping and not hasSoulboundCheck then
+        return nil, "CraftSim reagent mapping helpers are unavailable"
     end
     return true
 end
