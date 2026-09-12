@@ -11,8 +11,9 @@ CraftSim Enhancer is a standalone World of Warcraft Retail companion addon for [
 
 - Last completed in-game checklist: **120007 (12.0.7)**
 - Current release target: **120100 (12.1.0, build 69273)**
-- CraftSim compatibility adapters: **26.1.10 and 27.0.0**
+- CraftSim compatibility adapters: **26.1.10, 27.0.0, and 27.0.3**
 - CraftSim 27.0.0 core in-game checklist: **passed August 17, 2026**
+- CraftSim 27.0.3: **automated integration checks passed; user reported successful in-game testing**
 
 Other versions may work when their required capabilities remain compatible. Run `/cse status` after updating World of Warcraft or CraftSim; the addon reports untested versions and disables only a feature whose required interface is unavailable.
 

@@ -3,10 +3,11 @@ local _, ns = ...
 local Compat = {}
 ns.Compat.CraftSim = Compat
 
-Compat.testedVersion = "27.0.0"
+Compat.testedVersion = "27.0.3"
 Compat.testedVersions = {
     ["26.1.10"] = true,
     ["27.0.0"] = true,
+    ["27.0.3"] = true,
 }
 Compat.internalDependencies = {
     "CraftSim.CRAFTQ.craftQueue.craftQueueItems",

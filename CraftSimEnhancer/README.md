@@ -15,9 +15,9 @@ Interface/AddOns/CraftSimEnhancer/
 
 Enable both addons, log in, and run `/cse status`. Do not place this folder inside `CraftSim`.
 
-This 1.6.0 release targets World of Warcraft Retail interface 120100 (12.1.0, build 69273) and includes capability-based compatibility adapters for CraftSim 26.1.10 and 27.0.0. The shipped WoW API surface, live profession data, and current TSM public item coverage are validated. CraftSim 27.0.0's core price-refresh, tooltip, shopping-list, and Vendor Materials paths passed in-game testing on August 17, 2026. `/cse status` intentionally continues to report 12.1 as untested until the complete WoW-interface checklist passes.
+This 1.6.1 release targets World of Warcraft Retail interface 120100 (12.1.0, build 69273) and includes capability-based compatibility adapters for CraftSim 26.1.10, 27.0.0, and 27.0.3. The shipped WoW API surface, live profession data, and current TSM public item coverage are validated. CraftSim 27.0.0's core price-refresh, tooltip, shopping-list, and Vendor Materials paths passed in-game testing on August 17, 2026. `/cse status` intentionally continues to report 12.1 as untested until the complete WoW-interface checklist passes.
 
-CraftSim 27.0.3 source and automated integration checks passed on September 11, 2026. The development code includes a fix for its deferred Auctionator shopping-list publication. In-game validation remains pending; see [compatibility results](Tests/CRAFTSIM_27_0_3.md).
+CraftSim 27.0.3 source and automated integration checks passed on September 11, 2026. This release fixes its deferred Auctionator shopping-list publication. The user subsequently reported successful in-game testing; see [compatibility results](Tests/CRAFTSIM_27_0_3.md).
 
 ## First use
 

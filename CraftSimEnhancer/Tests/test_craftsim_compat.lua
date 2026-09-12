@@ -33,6 +33,7 @@ end
 local function testVersionSupport()
     assertEqual(Compat:IsVersionTested("26.1.10"), true, "CraftSim 26 support")
     assertEqual(Compat:IsVersionTested("27.0.0"), true, "CraftSim 27 support")
+    assertEqual(Compat:IsVersionTested("27.0.3"), true, "CraftSim 27.0.3 support")
     assertEqual(Compat:IsVersionTested("27.0.1"), false, "unknown CraftSim version warning")
 end
 
