@@ -272,6 +272,10 @@ local function testUnreceivedPurchaseRemainsPlanned()
     assertEqual(confirmedQuantity, 0, "failed purchase confirmed quantity")
     assertEqual(unconfirmedQuantity, 10, "failed purchase unconfirmed quantity")
     assertEqual(planData.items[101].quantity, 10, "failed purchase remains planned")
+    assertEqual(VendorBuy.pendingPurchases ~= nil, true, "unreceived purchase keeps waiting")
+    timers[1]() -- Absolute confirmation deadline.
+    assertEqual(VendorBuy.pendingPurchases, nil, "deadline releases failed purchase")
+    assertEqual(planData.items[101].quantity, 10, "deadline preserves unreceived plan")
 end
 
 local function testPartiallyReceivedPurchaseConsumesOnlyBagIncrease()
@@ -287,6 +291,36 @@ local function testPartiallyReceivedPurchaseConsumesOnlyBagIncrease()
     assertEqual(confirmedQuantity, 5, "partial confirmed quantity")
     assertEqual(unconfirmedQuantity, 5, "partial unconfirmed quantity")
     assertEqual(planData.items[101].quantity, 5, "partial purchase leaves remainder planned")
+
+    VendorBuy:ReconcilePendingPurchases()
+    assertEqual(planData.items[101].quantity, 5, "repeat check does not double deduct")
+    bagCounts[101] = 12
+    VendorBuy:ReconcilePendingPurchases()
+    assertEqual(next(planData.items), nil, "later partial delivery completes plan")
+    assertEqual(VendorBuy.pendingPurchases, nil, "complete delivery stops waiting")
+end
+
+local function testLateDeliveryAfterFirstCheck()
+    resetState()
+    configurePurchase(10)
+    bagCounts[101] = 2
+    VendorBuy:BuyQueuedVendorItems()
+    local deadline = timers[1]
+    timers[2]() -- Initial 1.25-second check, before delivery.
+    VendorBuy:BuyQueuedVendorItems()
+    assertEqual(#buyCalls, 1, "duplicate purchase blocked while waiting")
+
+    bagCounts[101] = 12
+    VendorBuy:BAG_UPDATE_DELAYED()
+    timers[#timers]()
+    assertEqual(next(planData.items), nil, "late bag event reconciles delivery")
+    assertEqual(VendorBuy.pendingPurchases, nil, "late delivery clears pending state")
+
+    configurePurchase(10)
+    VendorBuy:BuyQueuedVendorItems()
+    local newPurchase = VendorBuy.pendingPurchases
+    deadline()
+    assertEqual(VendorBuy.pendingPurchases, newPurchase, "old deadline cannot end new purchase")
 end
 
 testCompleteShoppingListSeparationIsAtomic()
@@ -295,5 +329,6 @@ testFailedShoppingListReplacementRestoresOriginal()
 testPlanWaitsForBagConfirmation()
 testUnreceivedPurchaseRemainsPlanned()
 testPartiallyReceivedPurchaseConsumesOnlyBagIncrease()
+testLateDeliveryAfterFirstCheck()
 
 print("VendorBuy tests passed")

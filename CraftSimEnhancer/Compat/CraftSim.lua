@@ -322,6 +322,20 @@ function Compat:HookShoppingListCreated(callback)
     if not module then
         return nil, resolveError
     end
+    -- CraftSim 27.0.3 publishes asynchronously after item data loads. Hook the
+    -- actual publication, not the return from CreateShoppingListFromCraftQueue.
+    if methodName == "CreateShoppingListFromCraftQueue" then
+        local api = Auctionator and Auctionator.API and Auctionator.API.v1
+        if not api or type(api.CreateShoppingList) ~= "function" then
+            return nil, "Auctionator shopping-list publication API is unavailable"
+        end
+        hooksecurefunc(api, "CreateShoppingList", function(caller, listName)
+            if caller == "CraftSim" and listName == Compat:GetAuctionatorShoppingListName() then
+                callback()
+            end
+        end)
+        return true
+    end
     hooksecurefunc(module, methodName, callback)
     return true
 end

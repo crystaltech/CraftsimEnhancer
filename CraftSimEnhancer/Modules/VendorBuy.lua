@@ -14,6 +14,7 @@ local PLAN_MAX_WIDTH = 720
 local PLAN_MIN_EXPANDED_HEIGHT = PLAN_HEADER_HEIGHT + PLAN_FOOTER_HEIGHT + PLAN_ROW_HEIGHT + 4
 local PLAN_MAX_HEIGHT = 520
 local PURCHASE_CONFIRM_DELAY_SECONDS = 1.25
+local PURCHASE_CONFIRM_TIMEOUT_SECONDS = 10
 
 VendorBuy.button = nil
 VendorBuy.planFrame = nil
@@ -598,13 +599,12 @@ function VendorBuy:SchedulePurchaseReconciliation(seconds)
     end)
 end
 
-function VendorBuy:ReconcilePendingPurchases()
+function VendorBuy:ReconcilePendingPurchases(finalAttempt)
     local pendingPurchases = self.pendingPurchases
     if not pendingPurchases then
         return false
     end
 
-    self.pendingPurchases = nil
     self.purchaseConfirmToken = self.purchaseConfirmToken + 1
 
     local confirmedItems = {}
@@ -616,7 +616,10 @@ function VendorBuy:ReconcilePendingPurchases()
         local addedQuantity = currentCount and
             math.max(0, currentCount - (tonumber(pendingInfo.beforeCount) or 0)) or 0
         local neededQuantity = math.max(0, tonumber(pendingInfo.neededQuantity) or 0)
-        local fulfilledQuantity = math.min(neededQuantity, addedQuantity)
+        local previouslyConfirmed = pendingInfo.confirmedQuantity or 0
+        local totalFulfilled = math.max(previouslyConfirmed, math.min(neededQuantity, addedQuantity))
+        local fulfilledQuantity = totalFulfilled - previouslyConfirmed
+        pendingInfo.confirmedQuantity = totalFulfilled
         if fulfilledQuantity > 0 then
             confirmedItems[itemID] = {
                 neededQuantity = fulfilledQuantity,
@@ -624,10 +627,17 @@ function VendorBuy:ReconcilePendingPurchases()
             }
             confirmedQuantity = confirmedQuantity + fulfilledQuantity
             local stackCount = math.max(1, tonumber(pendingInfo.stackCount) or 1)
-            confirmedCost = confirmedCost + math.ceil(fulfilledQuantity / stackCount) *
+            confirmedCost = confirmedCost + (math.ceil(totalFulfilled / stackCount) -
+                math.ceil(previouslyConfirmed / stackCount)) *
                 (tonumber(pendingInfo.price) or 0)
         end
-        unconfirmedQuantity = unconfirmedQuantity + math.max(0, neededQuantity - fulfilledQuantity)
+        unconfirmedQuantity = unconfirmedQuantity + math.max(0, neededQuantity - totalFulfilled)
+    end
+
+    if unconfirmedQuantity == 0 or finalAttempt then
+        self.pendingPurchases = nil
+    else
+        self:SchedulePurchaseReconciliation()
     end
 
     if next(confirmedItems) then
@@ -637,7 +647,7 @@ function VendorBuy:ReconcilePendingPurchases()
         ns:Print("Confirmed " .. tostring(confirmedQuantity) .. " vendor materials purchased for " ..
             WoW:FormatMoney(confirmedCost) .. ".")
     end
-    if unconfirmedQuantity > 0 then
+    if unconfirmedQuantity > 0 and finalAttempt then
         ns:Print(tostring(unconfirmedQuantity) ..
             " requested vendor materials were not received and remain in the Vendor Materials plan.")
     end
@@ -697,6 +707,12 @@ function VendorBuy:BuyQueuedVendorItems()
     end
 
     self.pendingPurchases = pendingPurchases
+    -- Keep a separate deadline so unrelated bag events cannot extend the wait.
+    C_Timer.After(PURCHASE_CONFIRM_TIMEOUT_SECONDS, function()
+        if VendorBuy.pendingPurchases == pendingPurchases then
+            VendorBuy:ReconcilePendingPurchases(true)
+        end
+    end)
     self:SchedulePurchaseReconciliation()
     self:UpdateButton()
     ns:Print("Requested " .. tostring(requestedQuantity) .. " vendor materials for " ..

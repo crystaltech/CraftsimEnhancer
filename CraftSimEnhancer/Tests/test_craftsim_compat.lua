@@ -123,11 +123,21 @@ local function testCraftSim27Adapters()
     assertEqual(Compat:ValidateVendorBuy(), true, "CraftSim 27 vendor validation")
     assertEqual(Compat:ValidateShoppingListHook(), true, "CraftSim 27 shopping hook validation")
 
-    local callback = function() end
+    Auctionator = { API = { v1 = { CreateShoppingList = function() end } } }
+    Compat.craftSim.CONST.AUCTIONATOR_SHOPPING_LIST_QUEUE_NAME = "CraftSim Queue"
+    local calls = 0
+    local callback = function() calls = calls + 1 end
     assertEqual(Compat:HookShoppingListCreated(callback), true, "CraftSim 27 shopping hook")
-    assertEqual(hookedModule, shoppingModule, "CraftSim 27 shopping hook module")
-    assertEqual(hookedMethod, "CreateShoppingListFromCraftQueue", "CraftSim 27 shopping hook method")
-    assertEqual(hookedCallback, callback, "CraftSim 27 shopping hook callback")
+    assertEqual(hookedModule, Auctionator.API.v1, "CraftSim 27 publication hook module")
+    assertEqual(hookedMethod, "CreateShoppingList", "CraftSim 27 publication hook method")
+    hookedCallback("OtherAddon", "CraftSim Queue")
+    hookedCallback("CraftSimEnhancer", "CraftSim Queue")
+    hookedCallback("CraftSim", "Other List")
+    assertEqual(calls, 0, "ignore unrelated lists and Enhancer replacement")
+    hookedCallback("CraftSim", "CraftSim Queue")
+    assertEqual(calls, 1, "CraftSim publication triggers callback")
+    Auctionator = nil
+    assertEqual(Compat:HookShoppingListCreated(callback), nil, "missing Auctionator fails safely")
 end
 
 testVersionSupport()
