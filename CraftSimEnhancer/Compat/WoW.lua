@@ -3,8 +3,8 @@ local _, ns = ...
 local WoW = {}
 ns.Compat.WoW = WoW
 
--- The 12.1.0.69273 source surface is verified; keep this at the last completed
--- in-game compatibility checklist until the 12.1 smoke test passes.
+-- The 12.1.5.70077 source surface is reviewed; keep this at the last completed
+-- in-game compatibility checklist until the 12.1.5 smoke test passes.
 WoW.testedInterface = 120007
 
 function WoW:GetInterfaceVersion()

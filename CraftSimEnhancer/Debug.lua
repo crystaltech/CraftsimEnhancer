@@ -10,6 +10,7 @@ end
 
 function ns.Debug:Log(message)
     if self:IsEnabled() then
+        if ns.DevTools then ns.DevTools:Log(message) end
         ns:Print("|cff999999Debug:|r " .. tostring(message))
     end
 end

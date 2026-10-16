@@ -541,6 +541,7 @@ end
 
 ---@return table[] recipes
 function Scanner:GetGeneratedRecipes()
+    if ns.Catalog then return ns.Catalog:GetIndex().recipes end
     return ns.Data.GeneratedRecipes or {}
 end
 
@@ -953,6 +954,8 @@ function Scanner:SetStatus(text)
 end
 
 function Scanner:InvalidateScanConfiguration()
+    self.configurationRevision = (self.configurationRevision or 0) + 1
+    self.selectedTargetCache = nil
     self.scanComplete = false
     self.overridesPushed = false
     self:SetStatus("")
@@ -1098,7 +1101,7 @@ function Scanner:GetSelectedScanTargetCount()
 
     -- Fixed vendor prices do not require Auction House queries, so count only
     -- the currently enabled targets that can actually be scanned.
-    local targets = self:BuildScanTargets({ skipFixedPrices = true }) or {}
+    local targets = ns.Catalog and self:GetSelectedTargetsCached() or self:BuildScanTargets({ skipFixedPrices = true }) or {}
     return #targets
 end
 
@@ -1108,17 +1111,20 @@ function Scanner:UpdateButtons()
         return
     end
 
+    local busy = self.isScanning or self.isPreparing
     local canPushOverrides = self.scanComplete and not self.overridesPushed and self:HasOverridesToPush()
     local selectedTargetCount = 0
-    if not self.isScanning and not canPushOverrides then
+    if not busy and not canPushOverrides then
         selectedTargetCount = self:GetSelectedScanTargetCount()
     end
 
     if panel.scanButton then
-        if self.isScanning then
+        if busy then
             panel.scanButton:SetText("Stop Scan")
         elseif canPushOverrides then
             panel.scanButton:SetText("Push Overrides")
+        elseif self.catalogPreparation or self.selectedPreparation then
+            panel.scanButton:SetText("Preparing Targets...")
         elseif selectedTargetCount == 0 then
             panel.scanButton:SetText("Select Scan Targets")
         else
@@ -1126,23 +1132,26 @@ function Scanner:UpdateButtons()
         end
     end
 
-    SetButtonEnabled(panel.scanButton, self.isScanning or canPushOverrides or selectedTargetCount > 0)
-    SetButtonEnabled(panel.configureButton, not self.isScanning and self:HasSelectedProfession())
+    SetButtonEnabled(panel.scanButton, busy or canPushOverrides or (not self.catalogPreparation and not self.selectedPreparation and selectedTargetCount > 0))
+    SetButtonEnabled(panel.configureButton, not busy and self:HasSelectedProfession())
     for _, checkbox in pairs(self.professionCheckboxes) do
-        SetButtonEnabled(checkbox, not self.isScanning)
+        SetButtonEnabled(checkbox, not busy)
     end
     if self.configPanel then
         self:UpdateScanScopeButtons()
         for _, viewButton in pairs(self.configPanel.viewButtons or {}) do
-            SetButtonEnabled(viewButton, not self.isScanning)
-            viewButton:SetAlpha(self.isScanning and 0.5 or 1)
+            SetButtonEnabled(viewButton, not busy)
+            viewButton:SetAlpha(busy and 0.5 or 1)
         end
-        SetButtonEnabled(self.configPanel.selectAllButton, not self.isScanning)
-        SetButtonEnabled(self.configPanel.clearAllButton, not self.isScanning)
-        SetButtonEnabled(self.configPanel.treeExpansionButton, not self.isScanning)
-        SetButtonEnabled(self.configPanel.professionButton, not self.isScanning)
-        SetButtonEnabled(self.configPanel.searchBox, not self.isScanning)
-        SetButtonEnabled(self.configPanel.selectedOnlyCheckbox, not self.isScanning)
+        local treeReady = self.configView ~= "recipes" or not self.treePreparation
+        SetButtonEnabled(self.configPanel.selectAllButton, not busy and not self.catalogPreparation and treeReady)
+        SetButtonEnabled(self.configPanel.clearAllButton, not busy and not self.catalogPreparation and treeReady)
+        SetButtonEnabled(self.configPanel.treeExpansionButton, not busy and not self.catalogPreparation and treeReady)
+        SetButtonEnabled(self.configPanel.expansionButton, not busy)
+        SetButtonEnabled(self.configPanel.availabilityButton, not busy)
+        SetButtonEnabled(self.configPanel.professionButton, not busy)
+        SetButtonEnabled(self.configPanel.searchBox, not busy)
+        SetButtonEnabled(self.configPanel.selectedOnlyCheckbox, not busy)
     end
     self:UpdateMissingButton()
 end

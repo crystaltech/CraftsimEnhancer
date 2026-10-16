@@ -90,6 +90,11 @@ function Scanner:AddScanTarget(targetsByKey, targets, itemID, itemLevel, label, 
     end
     if target.isCommodity == true then
         target.resultType = "commodity"
+    elseif target.itemClassID ~= nil then
+        -- Generated metadata resolves browsing targets without asking the AH
+        -- for item data for every entry in a large profession catalog.
+        local class = target.itemClassID
+        target.resultType = (class == 0 or class == 3 or class == 5 or class == 7 or class == 8) and "commodity" or "item"
     else
         target.resultType = target.resultType or self:GetAuctionResultType(itemID, target)
     end
@@ -313,6 +318,31 @@ function Scanner:ApplyLegacyTargetSelectionCompatibility(targets, options)
     end
 end
 
+function Scanner:AddRecipeTargets(recipe, targetsByKey, targets, options)
+    if recipe.catalogOnlyReason then return end
+    options = options or {}
+    local includeReagents = options.ignoreScanScope or Config:GetScanScope() ~= self.SCAN_SCOPES.PRODUCTS
+    local hasScannableOutput = false
+    local hasBoundDecorOutput = false
+    for _, output in ipairs(recipe.outputs or {}) do
+        hasScannableOutput = self:AddOutputTargets(recipe, output, targetsByKey, targets) or hasScannableOutput
+        for _, itemID in ipairs(output.itemIDs or {}) do
+            local metadata = self:GetItemMetadata(itemID)
+            if metadata and metadata.itemClassID == 20 and metadata.auctionSellable == false then
+                hasBoundDecorOutput = true
+            end
+        end
+    end
+    -- Pickup-bound decor still has tradeable crafting materials.
+    if includeReagents and (hasScannableOutput or hasBoundDecorOutput) then
+        for _, reagent in ipairs(recipe.reagents or {}) do
+            self:AddReagentTargets(recipe, reagent, targetsByKey, targets, {
+                skipFixedPrices = options.skipFixedPrices,
+            })
+        end
+    end
+end
+
 ---@param options table?
 ---@return table[]? targets
 ---@return string? errorMessage
@@ -338,37 +368,52 @@ function Scanner:BuildScanTargets(options)
         end
     end
 
+    if ns.Catalog and not options.ignoreSavedFilter and not options.includeAllProfessions and not options.profession
+        and Config.IsRecipeSelectionExplicit and Config:IsRecipeSelectionExplicit() then
+        recipes = ns.Catalog:GetSelectedRecipes(Config, selectedProfessions, options.checkpoint)
+    elseif ns.Catalog and not options.ignoreSavedFilter and Config.IsRecipeSelectionExplicit and
+        not Config:IsRecipeSelectionExplicit() then
+        recipes = ns.Data.GeneratedRecipes or {} -- New imports never join legacy default selections.
+    end
+    if ns.Catalog then ns.Catalog.perf.lastScanRecipeCount = #recipes end
     local targetsByKey = {}
     local targets = {}
-    local includeReagents = options.ignoreScanScope or Config:GetScanScope() ~= self.SCAN_SCOPES.PRODUCTS
 
+    local learnedOnly = not options.ignoreSavedFilter and Config.IsScanLearnedOnly and Config:IsScanLearnedOnly()
+    local availabilityCharacter = learnedOnly and ns.RecipeAvailability and ns.RecipeAvailability:GetCharacter()
     for _, recipe in ipairs(recipes) do
         local includeProfession = recipe.profession and
             (options.includeAllProfessions or options.profession == recipe.profession or selectedProfessions[recipe.profession])
-        if includeProfession then
-            local hasScannableOutput = false
-            for _, output in ipairs(recipe.outputs or {}) do
-                hasScannableOutput = self:AddOutputTargets(recipe, output, targetsByKey, targets) or hasScannableOutput
-            end
-            if hasScannableOutput and includeReagents then
-                for _, reagent in ipairs(recipe.reagents or {}) do
-                    self:AddReagentTargets(recipe, reagent, targetsByKey, targets, {
-                        skipFixedPrices = options.skipFixedPrices,
-                    })
-                end
-            end
+        local available = not learnedOnly or
+            (ns.RecipeAvailability and ns.RecipeAvailability:GetState(recipe, availabilityCharacter) == "LEARNED")
+        if includeProfession and available then
+            self:AddRecipeTargets(recipe, targetsByKey, targets, options)
         end
+        if options.checkpoint then options.checkpoint() end
     end
 
     self:ApplyLegacyTargetSelectionCompatibility(targets, options)
 
-    table.sort(targets, function(a, b)
+    if options.checkpoint and ns.Catalog then ns.Catalog:SortTargets(targets, options.checkpoint)
+    else table.sort(targets, function(a, b)
         return tostring(a.label or a.itemID) < tostring(b.label or b.itemID)
-    end)
+    end) end
 
     if not options.ignoreSavedFilter then
+        local explicitRecipes = ns.Catalog and Config:IsRecipeSelectionExplicit()
+        local overrides = explicitRecipes and Config:GetTargetSelectionOverrides() or {}
         targets = ns.Filter(targets, function(target)
-            return Config:IsTargetSelected(target.key)
+            if not explicitRecipes then return Config:IsTargetSelected(target.key) end
+            if overrides[target.key] ~= nil then return overrides[target.key] == true end
+            for recipeID in pairs(target.sourceRecipeMap or {}) do
+                if Config:IsRecipeSelected("id:" .. recipeID) then return true end
+            end
+            for profession, names in pairs(target.sourceNamesByProfession or {}) do
+                for name in pairs(names) do
+                    if Config:IsRecipeSelected("name:" .. profession .. ":" .. name) then return true end
+                end
+            end
+            return false
         end)
     end
 

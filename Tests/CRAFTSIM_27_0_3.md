@@ -17,7 +17,7 @@ The price-override repository, saved crafting-cost repository, module refresh ha
 From the repository root, with the release extracted outside the addon:
 
 ```bash
-CRAFTSIM_SOURCE_DIR=/path/to/CraftSim lua CraftSimEnhancer/Tests/test_craftsim_release.lua
+CRAFTSIM_SOURCE_DIR=/path/to/CraftSim lua Tests/test_craftsim_release.lua
 ```
 
 This loads actual release modules with mocked WoW, item loading, and Auctionator services. It verifies adapter initialization, capabilities, global and ranked result overrides, estimated override removal, ranked saved costs, tooltip lookup, UI refresh dispatch, vendor queue quantities, deferred shopping-list publication, recursion prevention, automatic queue publication, and quick-buy cache reset.

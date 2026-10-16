@@ -8,6 +8,11 @@ function Scanner:AUCTION_HOUSE_SHOW()
 end
 
 function Scanner:AUCTION_HOUSE_CLOSED()
+    if self.catalogPreparation and self.catalogPreparation.job then self.catalogPreparation.job.cancelled = true end
+    if self.selectedPreparation and self.selectedPreparation.job then self.selectedPreparation.job.cancelled = true end
+    if self.treePreparation and self.treePreparation.job then self.treePreparation.job.cancelled = true end
+    self.catalogPreparation, self.selectedPreparation = nil, nil
+    self.treePreparation = nil
     self:HideAuctionHouseTab()
     if self.configPanel then
         self.configPanel:Hide()
@@ -18,7 +23,7 @@ function Scanner:AUCTION_HOUSE_CLOSED()
     if self.button then
         self.button:Hide()
     end
-    if self.isScanning then
+    if self.isScanning or self.isPreparing then
         self:CancelScan("Auction House closed.")
     end
 end
@@ -154,6 +159,7 @@ function Scanner:Initialize()
     end
     self.eventFrame = ns:CreateEventDispatcher(self, EVENTS)
     self.initialized = true
+    if ns.RecipeAvailability then ns.RecipeAvailability:Initialize() end
     if AuctionHouseFrame and AuctionHouseFrame:IsShown() then
         self:ShowButton()
     end

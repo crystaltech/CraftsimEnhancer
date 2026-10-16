@@ -545,6 +545,68 @@ local function testScanScopeUsesStrictItemRoles()
     assertEqual(Scanner:GetTargetTypeText(reagent), "Reagent", "reagent user-facing label")
 end
 
+local function testLiveDecorCoverageAcrossExpansions()
+    local originalData = namespace.Data
+    namespace.Data = {}
+    for _, filename in ipairs({ "Alchemy", "Blacksmithing", "Cooking", "Enchanting", "Engineering",
+        "Inscription", "Jewelcrafting", "Leatherworking", "Tailoring", "ItemMetadata", "RecipeCategories" }) do
+        assert(loadfile("CraftSimEnhancer/Data/GeneratedRecipes/" .. filename .. ".lua"))("CraftSimEnhancer", namespace)
+    end
+    assertEqual(#namespace.Data.GeneratedRecipes, 1030, "live recipe coverage")
+    local recipesByID = {}
+    for _, recipe in ipairs(namespace.Data.GeneratedRecipes) do
+        recipesByID[recipe.recipeID or recipe.stratName] = recipe
+        local categoryID, category = Scanner:GetRecipeCategoryInfo(recipe)
+        assert(categoryID and category, "every live recipe has a profession category")
+    end
+    assertEqual(recipesByID[1316323].stratName, "Venthyr Alchemy Rack", "craft spell rather than collect spell")
+    assertEqual(recipesByID[1315719].reagents[2].rankItemIDs[3], 193211, "Dragonflight leather ranks")
+
+    local originalGetSelectedProfessions = Scanner.GetSelectedProfessions
+    local originalGetSkippedTargets = namespace.Config.AuctionHouseScan.GetSkippedTargets
+    namespace.Config.AuctionHouseScan.GetSkippedTargets = function() return {} end
+    Scanner.GetSelectedProfessions = function() return {} end
+    local targets = assert(Scanner:BuildScanTargets({ includeAllProfessions = true,
+        ignoreScanScope = true, ignoreSavedFilter = true, skipFixedPrices = true }))
+    local byItem = {}
+    for _, target in ipairs(targets) do
+        byItem[target.itemID] = target
+        assert(namespace.Data.ItemMetadata[target.itemID].auctionSellable ~= false,
+            "bound materials and outputs never become AH queries")
+    end
+    assert(byItem[282124], "new Legion decor output is scannable")
+    assert(byItem[171289], "bound Venthyr rack still supplies tradeable reagent targets")
+    assert(byItem[171289].sourceRecipeMap[1316323], "rack is recorded as the material's source recipe")
+    assertEqual(byItem[284552], nil, "pickup-bound rack output excluded")
+    assertEqual(byItem[251772], nil, "Shadowlands lumber excluded")
+    assertEqual(byItem[180732], nil, "vendor vials excluded from AH queries")
+    assertEqual(namespace.Data.ItemMetadata[180732].vendorSold, true, "legacy vendor supply classified")
+
+    local originalGetConfigProfession = Scanner.GetConfigProfession
+    local originalGetProfessionDisplayName = Scanner.GetProfessionDisplayName
+    local originalConfigTargets = Scanner.configTargets
+    Scanner.GetConfigProfession = function() return "Alchemy" end
+    Scanner.GetProfessionDisplayName = function(_, info) return info.name end
+    Scanner.configTargets = targets
+    Scanner.expandedProfessionGroups = {}
+    Scanner.expandedCategoryGroups = {}
+    local entries = Scanner:GetRecipeListEntries()
+    assertEqual(entries[1].label, "Alchemy — All Expansions", "mixed expansion heading")
+    local foundShadowlands = false
+    for _, row in ipairs(entries) do
+        if row.kind == "category" and row.label == "Shadowlands Alchemy — House Decor" then
+            foundShadowlands = true
+        end
+    end
+    assert(foundShadowlands, "legacy decor category includes its expansion")
+    namespace.Data = originalData
+    Scanner.GetSelectedProfessions = originalGetSelectedProfessions
+    namespace.Config.AuctionHouseScan.GetSkippedTargets = originalGetSkippedTargets
+    Scanner.configTargets = originalConfigTargets
+    Scanner.GetConfigProfession = originalGetConfigProfession
+    Scanner.GetProfessionDisplayName = originalGetProfessionDisplayName
+end
+
 local function testActiveScanScopeLooksSelectedInsteadOfDisabled()
     local originalPanel = Scanner.configPanel
     local originalIsScanning = Scanner.isScanning
@@ -654,6 +716,51 @@ local function testUnpricedStatusClassification()
         itemID = 7001,
         error = "Posted auctions found, but rank could not be identified.",
     }), "Variant not recognized", "variant status")
+end
+
+local function testUnlistedRankWithOtherAuctions()
+    local saved = {}
+    for _, method in ipairs({"TargetUsesFillQuantity", "GetTSMFallbackPrice", "GetTargetQueryItemKey", "GetTargetTypeText",
+        "GetTargetDiagnosticSummary", "SetStatus", "UpdateProgressText", "UpdateButtons"}) do
+        saved[method] = Scanner[method]
+        Scanner[method] = function() end
+    end
+    local oldAfter = C_Timer and C_Timer.After
+    C_Timer = C_Timer or {}
+    C_Timer.After = function() end
+    Scanner.GetTargetQueryItemKey = function(_, target) return Scanner:MakeItemKey(target.itemID, 0) end
+    local oldMissing, oldPrice, oldCache = Scanner.missingResults, Scanner.priceResults, Scanner.outputItemRowsCache
+    local oldCompleted, oldTimeout, oldPoll, oldPending = Scanner.completedTargets, Scanner.pendingTimeoutToken, Scanner.pendingPollToken, Scanner.pendingQuery
+    Scanner.missingResults, Scanner.priceResults, Scanner.outputItemRowsCache = {}, {}, {}
+    Scanner.completedTargets, Scanner.pendingTimeoutToken, Scanner.pendingPollToken = 0, 0, 0
+    local function Finish(target)
+        target.itemID = 239641
+        target.pricingMode = "output"
+        Scanner.pendingQuery = target
+        Scanner:FinishPendingTarget({}, "item")
+        return Scanner.missingResults[#Scanner.missingResults]
+    end
+    -- Report reproduction: lower-rank target has populated broad-search rows,
+    -- all at other item levels. Missing this rank must never price it from them.
+    local rank = Finish({ itemLevel=199, requiredBonusIDs={90004},rankClassificationResolved=true,
+        currentRawItemRows={ {unitPrice=999999,itemKey=Scanner:MakeItemKey(239641,206)} } })
+    assertEqual(Scanner:GetMissingReasonShort(rank), "Rank not listed", "other ranks present status")
+    assertEqual(Scanner:IsConfirmedNoAuctionResult(rank), true, "absent rank remains eligible for saved-cost estimate")
+    local variant = Finish({ itemLevel=199, currentRawItemRows={ {unitPrice=999999} } })
+    assertEqual(Scanner:GetMissingReasonShort(variant), "Variant not listed", "different level status")
+    local unresolved = Finish({ itemLevel=0, requiredBonusIDs={90004},currentRawItemRows={ {unitPrice=999999} } })
+    assertEqual(Scanner:GetMissingReasonShort(unresolved), "Variant not recognized", "unresolved rank is distinct")
+    assertEqual(Scanner:IsConfirmedNoAuctionResult(unresolved), false, "unresolved rank cannot be estimated as absent")
+    local empty = Finish({ itemLevel=199, requiredBonusIDs={90004},currentRawItemRows={} })
+    assertEqual(Scanner:GetMissingReasonShort(empty), "No auctions", "empty search stays distinct")
+    local failed = Finish({ itemLevel=199,requiredBonusIDs={90004},rankClassificationResolved=true,
+        currentRawItemRows={ {unitPrice=999999} }, error="Auction House query timed out." })
+    assertEqual(Scanner:GetMissingReasonShort(failed), "Scan problem", "query error takes precedence")
+    assertEqual(#Scanner.priceResults, 0, "unmatched rows never become prices")
+    for method, implementation in pairs(saved) do Scanner[method] = implementation end
+    C_Timer.After = oldAfter
+    Scanner.missingResults, Scanner.priceResults, Scanner.outputItemRowsCache = oldMissing, oldPrice, oldCache
+    Scanner.completedTargets, Scanner.pendingTimeoutToken, Scanner.pendingPollToken, Scanner.pendingQuery = oldCompleted, oldTimeout, oldPoll, oldPending
 end
 
 local function testOverridePushStatusUsesCompactResultList()
@@ -1064,9 +1171,11 @@ testScanScopeUsesStrictItemRoles()
 testActiveScanScopeLooksSelectedInsteadOfDisabled()
 testTargetBuildAppliesConfiguredScanScope()
 testUnpricedStatusClassification()
+testUnlistedRankWithOtherAuctions()
 testOverridePushStatusUsesCompactResultList()
 testCompletedScanCountsUseConsistentTargetUnits()
 testActiveScanUpdatesSlimProgressBar()
 testPartialRecipePreviewIsBoundedAndExplicit()
+testLiveDecorCoverageAcrossExpansions()
 
 print("AuctionHouseScan tests passed")

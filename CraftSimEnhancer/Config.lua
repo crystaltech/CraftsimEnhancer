@@ -432,6 +432,33 @@ function Config.AuctionHouseScan:SaveConfigProfession(profession)
     self:GetData().configProfession = profession or "ALL"
 end
 
+-- View-only filter; recipe and target selections survive expansion changes.
+function Config.AuctionHouseScan:GetConfigExpansion()
+    return self:GetData().configExpansion or "ALL"
+end
+
+function Config.AuctionHouseScan:SaveConfigExpansion(expansion)
+    self:GetData().configExpansion = tonumber(expansion) or "ALL"
+end
+
+-- Availability browsing never changes saved selections or the scan restriction.
+function Config.AuctionHouseScan:GetAvailabilityFilter()
+    local value = self:GetData().availabilityFilter
+    return (value == "LEARNED" or value == "UNLEARNED" or value == "UNCHECKED") and value or "ALL"
+end
+
+function Config.AuctionHouseScan:SaveAvailabilityFilter(value)
+    self:GetData().availabilityFilter = value
+end
+
+function Config.AuctionHouseScan:IsScanLearnedOnly()
+    return self:GetData().scanLearnedOnly == true
+end
+
+function Config.AuctionHouseScan:SaveScanLearnedOnly(enabled)
+    self:GetData().scanLearnedOnly = enabled == true
+end
+
 Config.VendorPlan = {}
 
 function Config.VendorPlan:GetData()

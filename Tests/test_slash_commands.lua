@@ -14,7 +14,9 @@ SlashCmdList = {}
 
 local fillQuantity = 20
 local messages = {}
+local devCommand
 local namespace = {
+    DevTools = { HandleCommand = function(_, command) devCommand = command end },
     version = "test",
     warnings = {},
     ModuleOrder = {},
@@ -107,5 +109,14 @@ assertEqual(fillQuantity, 125, "out-of-range scan quantity rejected")
 namespace.Modules.AuctionHouseScan.isScanning = true
 SlashCmdList.CRAFTSIMENHANCERSCANQTY("200")
 assertEqual(fillQuantity, 125, "scan quantity unchanged during active scan")
+
+SlashCmdList.CRAFTSIMENHANCER("dev dump")
+assertEqual(devCommand, "dump", "developer dump command dispatch")
+SlashCmdList.CRAFTSIMENHANCER("dev cancel")
+assertEqual(devCommand, "cancel", "developer cancellation command dispatch")
+SlashCmdList.CRAFTSIMENHANCER("dev catalog")
+assertEqual(devCommand, "catalog", "profession-independent catalog command dispatch")
+SlashCmdList.CRAFTSIMENHANCER("dev perf")
+assertEqual(devCommand, "perf", "performance report command dispatch")
 
 print("Slash command tests passed")

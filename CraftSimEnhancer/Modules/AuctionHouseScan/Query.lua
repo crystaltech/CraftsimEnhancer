@@ -9,7 +9,7 @@ local MAX_MORE_RESULT_REQUESTS = Shared.MaxMoreResultRequests
 local GENERIC_RESULT_GRACE_SECONDS = Shared.GenericResultGraceSeconds
 
 function Scanner:StartScan()
-    if self.isScanning then
+    if self.isScanning or self.isPreparing then
         return
     end
 
@@ -36,7 +36,33 @@ function Scanner:StartScan()
         self:ShowPanelView("config")
     end
 
+    if ns.Catalog then
+        self.isPreparing = true
+        self:SetStatus("Preparing selected scan targets...")
+        self:UpdateButtons()
+        local marker = {}
+        self.scanPreparation = marker
+        marker.job = ns.Catalog:RunJob(function(checkpoint)
+            local targets, message = self:BuildScanTargets({ checkpoint = checkpoint })
+            return { targets = targets, message = message }
+        end, function(result, job)
+            if self.scanPreparation ~= marker then return end
+            self.scanPreparation, self.isPreparing = nil, false
+            ns.Catalog.perf.maxScanPreparationSliceMs = job.maxSliceMs
+            if not AuctionHouseFrame or not AuctionHouseFrame:IsShown() then self:CancelScan("Auction House closed."); return end
+            self:BeginPreparedScan(result.targets, result.message)
+        end, function(message)
+            if self.scanPreparation ~= marker then return end
+            self.scanPreparation, self.isPreparing = nil, false
+            self:CancelScan("Could not prepare scan: " .. message)
+        end)
+        return
+    end
     local targets, errorMessage = self:BuildScanTargets()
+    self:BeginPreparedScan(targets, errorMessage)
+end
+
+function Scanner:BeginPreparedScan(targets, errorMessage)
     if not targets then
         self:SetStatus(errorMessage)
         self:UpdateButtons()
@@ -141,6 +167,7 @@ function Scanner:TrySendNextQuery()
     self.scanIndex = self.scanIndex + 1
     local target = self.scanTargets[self.scanIndex]
     self.pendingQuery = target
+    if ns.Catalog then target.resultType = self:GetAuctionResultType(target.itemID, target) or target.resultType end
     target.moreRequests = 0
     target.queryStartTime = GetTime()
     target.sellSearchFallbackSent = false

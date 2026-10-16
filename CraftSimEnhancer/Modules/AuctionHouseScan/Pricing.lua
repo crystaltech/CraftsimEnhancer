@@ -209,6 +209,13 @@ function Scanner:FinishPendingTarget(rows, resultType)
         if target.requiredBonusIDs and target.currentRawItemRows and #target.currentRawItemRows > 0 and
             not target.rankClassificationResolved then
             target.error = target.error or "Posted auctions found, but rank could not be identified."
+        elseif target.currentRawItemRows and #target.currentRawItemRows > 0 and
+            (target.requiredBonusIDs or (target.itemLevel and target.itemLevel > 0)) then
+            if target.requiredBonusIDs then
+                target.error = target.error or "No posted auctions found for this rank; other ranks are listed."
+            else
+                target.error = target.error or "No posted auctions found for this item level; other variants are listed."
+            end
         else
             target.error = target.error or "No posted auctions found."
         end
@@ -262,6 +269,8 @@ end
 
 ---@param reason string?
 function Scanner:CancelScan(reason)
+    if self.scanPreparation and self.scanPreparation.job then self.scanPreparation.job.cancelled = true end
+    self.scanPreparation, self.isPreparing = nil, false
     self.isScanning = false
     self.pendingQuery = nil
     self.pendingTimeoutToken = self.pendingTimeoutToken + 1

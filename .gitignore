@@ -1,0 +1,22 @@
+# Keep development documentation and tests in the public project after moving
+# them out of the installable addon. Private references and tools stay local.
+!/.gitignore
+!/README.md
+!/LICENSE
+!/Tests/
+!/Tests/**
+!/docs/
+!/docs/**
+/zip/
+**/.DS_Store
+**/__pycache__/
+
+# Maintainer-only workspace files and upstream copies.
+/tools/
+/References/
+/legacy/
+/tmp/
+/.vscode/
+/.agents/
+/.codex/
+/Install_CraftSimEnhancer.command

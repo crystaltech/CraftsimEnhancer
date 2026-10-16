@@ -1,5 +1,38 @@
 # CraftSim Enhancer
 
+## Workspace layout
+
+Run development commands from the repository root. The maintainer workspace also contains private tools, upstream references, caches, and a local installer; those are not distributed in the public repository or addon ZIP.
+
+```text
+CraftSimEnhancer/             Installable addon: TOC, Lua files, and license
+Tests/                       Automated tests and validation notes
+docs/                        Addon user documentation
+tools/                       Data generators, overlays, and internal notes
+References/                  Blizzard UI reference copies
+legacy/CraftSim/              Preserved modified upstream source
+legacy/CraftSim_stock/        Preserved stock upstream comparison
+tmp/                         Cached downloads and generated candidates
+Install_CraftSimEnhancer.command
+zip/                         Release archives and backups
+```
+
+Install by copying only `CraftSimEnhancer` into WoW's `Interface/AddOns`, or use the local maintainer installer `Install_CraftSimEnhancer.command` if available. The installer locates the sibling addon folder automatically. User documentation is in [docs/ADDON_README.md](docs/ADDON_README.md).
+
+Download the [1.7.0 addon ZIP](https://github.com/crystaltech/CraftsimEnhancer/releases/download/v1.7.0/CraftSimEnhancer-v1.7.0-addon-only.zip). It contains only the installable addon and required license notices. Local archives are preserved under `zip/`. See the [release notes](docs/RELEASE_1_7_0.md).
+
+To check the workspace:
+
+```bash
+for test in Tests/test_*.lua; do lua "$test" || exit 1; done
+# Additional checks in the maintainer workspace (private tools/sources):
+python3 -m unittest tools.test_generate_generated_recipes tools.test_import_profession_catalog
+python3 tools/generate_generated_recipes.py --verify-only \
+  --input-dir legacy/CraftSim/Data/GeneratedRecipes \
+  --overlay tools/patches/12.1.5.json \
+  --check-output CraftSimEnhancer/Data/GeneratedRecipes
+```
+
 [![Latest release](https://img.shields.io/github/v/release/crystaltech/CraftsimEnhancer)](https://github.com/crystaltech/CraftsimEnhancer/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -10,21 +43,33 @@ CraftSim Enhancer is a standalone World of Warcraft Retail companion addon for [
 ## Current compatibility
 
 - Last completed in-game checklist: **120007 (12.0.7)**
-- Current release target: **120100 (12.1.0, build 69273)**
+- Current release: **1.7.0**, targeting **120100 and 120105 (12.1.0 and 12.1.5)**
+- Recipe data refreshed October 15, 2026 from client build **12.1.5.70391**: **10,637 catalog records** from Classic through Midnight, including the verified **1,030-recipe / 347-decor** baseline. **2,426** imported records remain catalog-only until their scan data can be resolved.
 - CraftSim compatibility adapters: **26.1.10, 27.0.0, and 27.0.3**
 - CraftSim 27.0.0 core in-game checklist: **passed August 17, 2026**
 - CraftSim 27.0.3: **automated integration checks passed; user reported successful in-game testing**
+- CraftSim 27.0.5: **source review and automated integration checks passed September 17, 2026; in-game validation pending**. No Enhancer code changes required by these checks; see [compatibility results](Tests/CRAFTSIM_27_0_5.md).
+- Latest official CraftSim release rechecked October 16, 2026: **27.0.7**. Its actual release modules pass automated integration checks, including automatic shopping-list creation enabled and disabled. See [12.1.5 readiness and in-game checklist](Tests/PATCH_12_1_5_READINESS.md).
+- WoW **12.1.5.70077** UI-source review found no breaking changes in the APIs used by the addon. **12.1.5 and CraftSim 27.0.7 in-game validation remain pending**; tested-version markers retain their previous values.
+
+The [October 16 recheck](Tests/CRAFTSIM_RECHECK_2026_10_16.md) found no newer published release. Three unreleased commits affect inventory/restock, bound-material queue limits, and the data-mining build marker; the CSE source integration harness passes against both 27.0.7 and the pinned development snapshot. Current in-game usage has a positive user report; the complete checklist markers remain unchanged.
 
 Other versions may work when their required capabilities remain compatible. Run `/cse status` after updating World of Warcraft or CraftSim; the addon reports untested versions and disables only a feature whose required interface is unavailable.
 
 The 12.1 live Auction House, merchant, item, tooltip, and profession APIs used by CraftSim Enhancer have been validated against the shipped UI source. Generated profession data and current TSM public item coverage have also been refreshed. CraftSim 27's Shopping module, event-driven price refresh, break-even tooltip, and Vendor Materials paths have passed their core in-game checks. `/cse status` retains the broader WoW-interface warning until the complete 12.1 checklist passes.
+
+Recon's **Availability** menu offers All, Learned, Unlearned, and Unchecked browsing filters. Confirmed unlearned recipes are dimmed but remain selectable. Open your own professions each login to populate the per-character session cache; linked/guild/NPC views do not populate it. Browsing preserves selections. The separate **Scan learned recipes only** option excludes unlearned and unchecked sources, including individual overrides; it defaults off.
+
+The 1.7 catalog needs no LibProfessionDB installation. Recon groups recipes by profession, expansion, and category; its expansion dropdown changes the view while preserving selections. Large preparation jobs yield between batches, and scrolling reuses visible rows. Run `/cse dev perf` for a timing/memory snapshot. See [catalog validation and performance limits](Tests/CATALOG_1_7.md).
+
+See the [12.1.5 decor coverage and validation notes](Tests/PATCH_12_1_5_DECOR.md).
 
 ## What it adds
 
 ### CSE Recon
 
 - A full Auction House tab with profession, recipe-category, and individual-item selection.
-- Generated Midnight recipe and reagent scan targets.
+- Generated Midnight recipe and reagent scan targets, plus crafted decor from older expansions.
 - Fill-quantity and outlier-aware reagent pricing.
 - Exact-rank crafted-output pricing using the lowest current buyout.
 - Unpriced-item reports with query diagnostics and future-scan exclusion.
@@ -81,6 +126,8 @@ Do not place `CraftSimEnhancer` inside the `CraftSim` folder.
 7. Buy the Auction House materials first, then visit vendors listed in the **Vendor Materials** window.
 
 Large scans are intentionally paced around Blizzard's Auction House throttle and can take several minutes. Keep the Auction House open until the scan finishes or cancel it before leaving.
+
+Unpriced reports distinguish **Rank not listed** (other ranks have listings), **Variant not listed** (other item levels have listings), **No auctions** (empty buyout search), **Variant not recognized**, and **Scan problem**. Missing ranks remain eligible for saved-cost break-even estimates when pushing; unresolved variants and query failures do not.
 
 Completed-scan totals use price targets throughout, so priced plus unpriced always equals processed. The **Unpriced items** button separately reports grouped review rows because several ranks or variants can share one row.
 
@@ -144,15 +191,20 @@ min(100, max(5, roundup(2 * dbregionsoldperday)))
 - `/cse` or `/cse help` — show available commands.
 - `/cse status` — show versions, module states, migration status, and compatibility warnings.
 - `/cse debug` — toggle diagnostic output.
+- `/cse dev <dump|catalog|perf|status|cancel|clear>` — capture live profession data and diagnostics; see [export instructions](docs/DEV_EXPORT.md).
 - `/cse scan` — open CSE Recon while the Auction House is open.
 - `/cse_scanqty <quantity>` — set how many reagent units (5–1000, default 20) are sampled for scan pricing. `/cse scanqty <quantity>` is also accepted.
 - `/cse vendor` — reopen Vendor Materials or refresh Vendor Buy at an open merchant.
 - `/cse module <scan|tooltip|vendor|notice> <on|off>` — change a module state after the next reload.
 - `/cse reset confirm` — reset only CraftSim Enhancer settings.
 
+Follow the [12.1.5 in-game checklist](Tests/MANUAL_12_1_5.md) when validating this release.
+
 ## Updating and troubleshooting
 
 CraftSim Enhancer stores its settings in `CraftSimEnhancerDB` and does not modify CraftSim files. Updating or replacing the `CraftSim` folder will not overwrite the Enhancer.
+
+For the 12.1.5 decor cost reductions, rerun CraftSim Recipe Scan with **Update Last Crafting Cost DB** enabled and recreate queued shopping lists. Existing saved break-even costs and vendor plans retain their old values until refreshed.
 
 After updating World of Warcraft or CraftSim:
 

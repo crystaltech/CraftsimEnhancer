@@ -34,6 +34,7 @@ local function PrintHelp()
     ns:Print("/cse help - show commands")
     ns:Print("/cse status - show compatibility and module status")
     ns:Print("/cse debug - toggle debug output")
+    ns:Print("/cse dev <dump|catalog|perf|status|cancel|clear> - export data or inspect performance")
     ns:Print("/cse reset - show reset confirmation")
     ns:Print("/cse reset confirm - reset only CraftSim Enhancer settings")
     ns:Print("/cse module <scan|tooltip|vendor|notice> <on|off> - set a module for the next reload")
@@ -127,6 +128,8 @@ local function HandleSlashCommand(message)
     elseif command == "debug" then
         ns.Debug:SetEnabled(not ns.Debug:IsEnabled())
         ns:Print("Debug output " .. (ns.Debug:IsEnabled() and "enabled." or "disabled."))
+    elseif command == "dev" then
+        ns.DevTools:HandleCommand(remainder)
     elseif command == "reset" then
         if remainder == "confirm" then
             ns.Config:Reset()

@@ -1,4 +1,4 @@
--- Run from repository root with CRAFTSIM_SOURCE_DIR pointing at an extracted release.
+-- Run from repository root with CRAFTSIM_SOURCE_DIR pointing at a CraftSim release or pinned source tree.
 local sourceDir = os.getenv("CRAFTSIM_SOURCE_DIR")
 if not sourceDir then
     print("CraftSim release integration skipped (set CRAFTSIM_SOURCE_DIR)")
@@ -14,6 +14,7 @@ local ns = {}
 assert(loadfile("CraftSimEnhancer/Core.lua"))("CraftSimEnhancer", ns)
 local pendingLoad
 local published = {}
+local autoShoppingList = true
 local gutil = {
     GetFormatter = function() return setmetatable({}, { __index = function() return tostring end }) end,
     CreateRegistreeForEvents = function() return {} end,
@@ -32,12 +33,17 @@ local craftSim = {
         { __index = function() return noop end }),
     CONST = { AUCTIONATOR_SHOPPING_LIST_QUEUE_NAME = "CraftSim Queue", SUPPORTED_PRICE_API_ADDONS = { "TSM", "Auctionator" } },
     DB = { RegisterRepository = function() return { MIGRATION = {} } end,
-        CRAFTER = { GetCrafterUIDs = function() return {} end } },
+        CRAFTER = { GetCrafterUIDs = function() return {} end },
+        OPTIONS = { Get = function(_, key)
+            eq(key, "CRAFTQUEUE_AUTO_SHOPPING_LIST", "automatic shopping-list option")
+            return autoShoppingList
+        end } },
     ITEM_COUNT = { Get = function() return 2 end },
 }
 C_AddOns = { IsAddOnLoaded = function() return true end }
 C_Item = { GetItemNameByID = function() return "Vendor Butter" end,
-    GetItemInfoInstant = function() return 101 end }
+    GetItemInfoInstant = function() return 101 end,
+    GetItemInfo = function() return nil end }
 C_TradeSkillUI = { GetItemReagentQualityByItemInfo = function() return nil end }
 Item = { CreateFromItemID = function() return {} end }
 Auctionator = { API = { v1 = {
@@ -55,6 +61,8 @@ hooksecurefunc = function(object, method, callback)
     end
 end
 local function upstream(path) assert(loadfile(sourceDir .. "/" .. path))("CraftSim", craftSim) end
+CraftSimTSM = {}
+upstream("DataSource/InventorySource.lua")
 upstream("Modules/Modules.lua")
 upstream("Modules/CraftQueue/CraftQueue.lua")
 upstream("Modules/Shopping/Shopping.lua")
@@ -116,5 +124,15 @@ eq(#published["CraftSim Queue"], 0, "vendor removal survives publication")
 craftSim.SHOPPING:CRAFTSIM_CRAFTQUEUE_QUEUE_PROCESS_FINISHED()
 pendingLoad()
 eq(calls, 2, "automatic queue publication invokes hook once")
+pendingLoad = nil
+autoShoppingList = false
+craftSim.SHOPPING:CRAFTSIM_CRAFTQUEUE_QUEUE_PROCESS_FINISHED()
+eq(pendingLoad, nil, "disabled automatic shopping list does not schedule publication")
+eq(calls, 2, "disabled automatic shopping list does not invoke vendor separation")
+-- Manual creation remains available with the automatic setting disabled.
+craftSim.SHOPPING:CreateShoppingListFromCraftQueue()
+assert(pendingLoad, "manual shopping list schedules publication with automatic setting disabled")
+pendingLoad()
+eq(calls, 3, "manual publication still invokes vendor separation")
 assert(compat:ResetQuickBuyCache())
 print("CraftSim release integration passed: " .. sourceDir)

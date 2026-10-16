@@ -24,6 +24,8 @@ local function testNewInstallUsesSmallBatchFillQuantity()
     namespace.Config:Initialize()
 
     assertEqual(namespace.Config.AuctionHouseScan:GetFillQuantity(), 20, "new-install fill quantity")
+    assertEqual(namespace.Config.AuctionHouseScan:GetAvailabilityFilter(), "ALL", "default availability view")
+    assertEqual(namespace.Config.AuctionHouseScan:IsScanLearnedOnly(), false, "default scan remains unrestricted")
     assertEqual(CraftSimEnhancerDB.migrationVersion, 5, "new-install migration version")
     assertEqual(namespace.Config.AuctionHouseScan:GetScanScope(), "BOTH", "new-install scan scope")
     assertEqual(CraftSimEnhancerDB.global.auctionHouseScan.targetSelectionMode, "explicit",

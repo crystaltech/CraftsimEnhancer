@@ -378,7 +378,7 @@ function Scanner:CreatePanel()
     panel.scanButton:SetText("Scan Now")
     panel.scanButton:SetScript("OnClick", function()
         local scanner = Scanner
-        if scanner.isScanning then
+        if scanner.isScanning or scanner.isPreparing then
             scanner:CancelScan("Scan stopped.")
         elseif scanner.scanComplete and not scanner.overridesPushed and scanner:HasOverridesToPush() then
             scanner:PushOverrides()
@@ -627,6 +627,10 @@ function Scanner:GetMissingReasonShort(result)
         return "Scan problem"
     elseif string.find(lowerError, "rank could not be identified", 1, true) then
         return "Variant not recognized"
+    elseif string.find(lowerError, "other ranks are listed", 1, true) then
+        return "Rank not listed"
+    elseif string.find(lowerError, "other variants are listed", 1, true) then
+        return "Variant not listed"
     elseif string.find(lowerError, "no posted", 1, true) then
         return "No auctions"
     end
