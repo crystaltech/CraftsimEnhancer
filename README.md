@@ -109,47 +109,55 @@ Scan results are temporary. Prices are persisted only when **Push Overrides** wr
 
 ## Recommended TSM expressions
 
-When TradeSkillMaster is CraftSim's selected price source, open **CraftSim Options → TSM** and consider these conservative alternatives to the defaults.
+Reviewed October 16, 2026 against TSM's documentation and CraftSim 27.0.7. These are optional CSE starting points, not official TSM presets or guaranteed sale prices. With TSM selected as CraftSim's price source, enter them under **CraftSim Options → TSM**.
+
+`DBMinBuyout` is a cached minimum listing, not a live quote. `DBRecent` estimates the latest snapshot; `DBMarket` uses a weighted 14-day history. The expressions below use current-source fallbacks with a separate longer-term baseline. [TSM price-source definitions](https://support.tradeskillmaster.com/en_US/custom-strings/which-price-sources-can-i-use-and-what-do-they-mean)
 
 ### Crafting Reagents Price Expression
 
 ```text
-max(first(dbminbuyout, dbrecent, dbmarket, dbregionmarketavg), 80% first(dbrecent, dbmarket, dbregionmarketavg))
+max(first(dbminbuyout, dbrecent, dbmarket, dbregionmarketavg), 80% first(dbmarket, dbregionmarketavg, dbrecent))
 ```
 
-This follows the best available current source while preventing an unusually small listing from reducing material costs below 80% of a recent or longer-term market value.
+Uses the first available listing/snapshot value, with an 80% market-history floor to reduce understated costs from a cheap listing. A high current listing can still raise the cost; this is not a fill-quantity purchase quote.
 
 ### Crafted Items Price Expression
 
 ```text
-min(first(dbminbuyout, dbrecent, dbmarket, dbregionmarketavg), 120% first(dbrecent, dbmarket, dbregionmarketavg))
+min(first(dbminbuyout, dbrecent, dbmarket, dbregionmarketavg), 120% first(dbmarket, dbregionmarketavg, dbrecent))
 ```
 
-This follows the lowest available listing while limiting unusually high or thin listings to 120% of a recent or longer-term market value.
+Caps the available listing/snapshot value at 120% of the market-history baseline. The 80%/120% limits are adjustable CSE heuristics. History can lag genuine patch-driven price changes: the material floor can overstate costs and the product cap can understate revenue. Remove the clamp when you deliberately want the unclamped fallback chain `first(dbminbuyout, dbrecent, dbmarket, dbregionmarketavg)`.
+
+`first()` chooses the first valid source; it does not choose the lowest. `min()` and `max()` ignore invalid arguments, so a missing source can weaken a guard. [TSM function reference](https://support.tradeskillmaster.com/en_US/custom-strings/which-functions-can-i-use-and-what-do-they-mean)
+
+Use gross item prices here: CraftSim already applies the AH cut in its profit calculation. Its TSM adapter also prefers an available `VendorBuy` value, so adding a blanket vendor-price minimum is unnecessary. [CraftSim profit calculation](https://github.com/derfloh205/CraftSim/blob/27.0.7/Pricing/ProfitCalculation.lua), [TSM adapter](https://github.com/derfloh205/CraftSim/blob/27.0.7/DataSource/PriceAPIs.lua)
 
 ### Sold-per-day restock option
 
 ```text
-ifgte(dbregionsoldperday, 0.1, min(20, max(1, roundup(3 * dbregionsoldperday))), 0)
+ifgte(dbregionsoldperday, 0.1, min(20, roundup(3 * dbregionsoldperday, 1)), 0)
 ```
 
-This targets roughly three days of regional sales, skips items averaging fewer than 0.1 sales per day, and caps the target at 20. It returns a target inventory quantity; CraftSim subtracts owned inventory separately.
+Targets three days of reported volume, capped at 20 items, and skips volume below 0.1/day. `DBRegionSoldPerDay` is the average sold per Auction House per day across the region, not total regional volume or your own expected sales. Tune the days/caps to your actual sales. [TSM value-source definitions](https://support.tradeskillmaster.com/en_US/custom-strings/which-value-sources-can-i-use-and-what-do-they-mean)
 
-CraftSim also has a separate **TSM sale-rate threshold** in the gear menu beside **Send to Craft Queue**. New items may have no regional sales data, so a positive threshold can reject every result. Set it to `0` when new items should remain eligible. Temporarily disabling **Use TSM Restock Expression** makes CraftSim use its **Default Queue Amount** and is a useful troubleshooting check.
-
-For slower gear, a one-week target capped at five is more conservative:
+For slower gear, a seven-day target capped at five:
 
 ```text
-min(5, max(1, roundup(7 * dbregionsoldperday)))
+ifgte(dbregionsoldperday, 0.1, min(5, roundup(7 * dbregionsoldperday, 1)), 0)
 ```
 
-For high-volume consumables, a two-day target between five and 100 may be more useful:
+For established consumables, a two-day target between five and 100:
 
 ```text
-min(100, max(5, roundup(2 * dbregionsoldperday)))
+ifgte(dbregionsoldperday, 0.1, min(100, max(5, roundup(2 * dbregionsoldperday, 1))), 0)
 ```
 
-`DBRegionSoldPerDay` is TSM's estimated regional average, not the player's personal sales rate. CraftSim Enhancer overrides take priority for items pushed by CSE Recon; TSM remains a fallback for other items. `DBMinBuyout` is TSM's most recently processed minimum and is not guaranteed to be live.
+Each example guards the minimum quantity behind a valid sales-volume check. Without that guard, `min`/`max` can leave a target of one or five even when sales data is missing. Missing data can make the guarded expression invalid; CraftSim 27.0.7 treats an invalid restock result as zero. These are target item quantities: CraftSim handles inventory subtraction and conversion to crafts for multi-output recipes. In Craft Lists, review **Subtract inventory** and leave the queue offset at zero if you expect low-volume recipes to be skipped. [CraftSim queue behavior](https://github.com/derfloh205/CraftSim/blob/27.0.7/Modules/RecipeScan/RecipeScan.lua), [Craft Lists](https://github.com/derfloh205/CraftSim/blob/27.0.7/Modules/CraftQueue/CraftLists.lua)
+
+**New recipes and missing sales data:** setting the separate **TSM sale-rate threshold** beside **Send to Craft Queue** to `0` only removes that sale-rate gate. A sold-per-day expression can still return no quantity. For a deliberate small trial, disable **Use TSM Restock Expression** and use **Default Queue Amount**, or temporarily use a constant restock expression of `1`. CraftSim still considers owned inventory. Sale rate and sold per day measure different things.
+
+CSE overrides take priority where applicable after **Push Overrides**. These expressions do not repair missing rank-specific prices or supply an AH value for bound lumber; review those separately. CraftSim validates pasted expression syntax in game; check a few known items before queueing a large batch.
 
 ## Commands
 
