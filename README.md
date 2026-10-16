@@ -19,7 +19,7 @@ zip/                         Release archives and backups
 
 Install by copying only `CraftSimEnhancer` into WoW's `Interface/AddOns`, or use the local maintainer installer `Install_CraftSimEnhancer.command` if available. The installer locates the sibling addon folder automatically. User documentation is in [docs/ADDON_README.md](docs/ADDON_README.md).
 
-Download the [1.7.0 addon ZIP](https://github.com/crystaltech/CraftsimEnhancer/releases/download/v1.7.0/CraftSimEnhancer-v1.7.0-addon-only.zip). It contains only the installable addon and required license notices. Local archives are preserved under `zip/`. See the [release notes](docs/RELEASE_1_7_0.md).
+Download the [1.7.0 addon ZIP](https://github.com/crystaltech/CraftsimEnhancer/releases/download/v1.7.0/CraftSimEnhancer-v1.7.0.zip). It contains only the installable addon and required license notices. Local archives are preserved under `zip/`. See the [release notes](docs/RELEASE_1_7_0.md).
 
 To check the workspace:
 

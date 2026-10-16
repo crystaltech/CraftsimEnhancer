@@ -29,7 +29,7 @@ LibProfessionDB installation is needed.
 
 ## Install and update
 
-Extract `CraftSimEnhancer-v1.7.0-addon-only.zip` into `Interface/AddOns` so that
+Extract `CraftSimEnhancer-v1.7.0.zip` into `Interface/AddOns` so that
 `CraftSimEnhancer` sits beside `CraftSim`. Replace the previous Enhancer folder
 and reload or restart WoW. Settings and selections are retained.
 

@@ -1,6 +1,6 @@
 # 12.1.5 in-game checks — 1.7.0
 
-Install only the `CraftSimEnhancer` folder from `zip/CraftSimEnhancer-v1.7.0-addon-only.zip`, beside CraftSim and Auctionator. Automated integration was checked against CraftSim 27.0.7. Record your actual versions if using a newer release. Enable `/console scriptErrors 1` or use BugSack/BugGrabber. Keep the first Lua error if one occurs.
+Install only the `CraftSimEnhancer` folder from `zip/CraftSimEnhancer-v1.7.0.zip`, beside CraftSim and Auctionator. Automated integration was checked against CraftSim 27.0.7. Record your actual versions if using a newer release. Enable `/console scriptErrors 1` or use BugSack/BugGrabber. Keep the first Lua error if one occurs.
 
 1. **Startup.** Run `/cse status`. Expect Enhancer 1.7.0, WoW interface 120105, and enabled modules initialized. Untested-version warnings remain expected. Open and close professions, the Auction House, and a merchant; confirm controls appear once and no errors occur.
 2. **Decor and reduced quantities.** In Recon's Recipes view, select a profession and check its expansion-labeled House Decor groups. Check an available Classic decor recipe, a newly added older-expansion decor recipe, a Dragonflight recipe with ranked reagents, and a Midnight recipe. For recipes you can craft, compare CraftSim's ingredients and quantities against Blizzard's profession window. With **Update Last Crafting Cost DB** enabled, rerun CraftSim Recipe Scan, then recreate the shopping list for one craft. It must use the current quantities, not the pre-patch vendor plan.
