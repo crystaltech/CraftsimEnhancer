@@ -221,8 +221,19 @@ When reporting a problem in [GitHub Issues](https://github.com/crystaltech/Craft
 - The exported Unpriced AH report when the problem involves scanning.
 - Clear steps that reproduce the issue.
 
+## Thanks and inspiration
+
+Thank you to the creators, maintainers, and contributors whose addons inspired CraftSim Enhancer and helped make its features possible:
+
+- **[CraftSim](https://www.curseforge.com/wow/addons/craftsim)** — genju and the CraftSim contributors, for the crafting simulation and profession tools that CSE builds on.
+- **[Auctionator](https://www.curseforge.com/wow/addons/auctionator)** — the Auctionator team and contributors, for accessible Auction House tools and shopping-list integration.
+- **[TradeSkillMaster](https://www.tradeskillmaster.com/)** — the TSM team and contributors, for their pricing tools and crafting-economy workflows.
+- **[LibProfessionDB](https://www.curseforge.com/wow/addons/libprofessiondb)** — Pimptasty and contributors, for the offline profession data that helped expand CSE's recipe catalog.
+
+We appreciate the time, care, and knowledge you share with the WoW addon community.
+
 ## License and project independence
 
 CraftSim Enhancer is distributed under the [MIT License](LICENSE). Release ZIPs also include the license inside the addon folder.
 
-CraftSim, Auctionator, TradeSkillMaster, and World of Warcraft are separate projects or products. Their names are used only to identify compatibility. No affiliation or endorsement is implied.
+CraftSim, Auctionator, TradeSkillMaster, and World of Warcraft are separate projects or products. These credits acknowledge their work; no affiliation or endorsement is implied.
